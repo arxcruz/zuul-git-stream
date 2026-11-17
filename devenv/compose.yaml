@@ -1,0 +1,151 @@
+# Zuul + git-stream demo environment.
+#
+#   ./deploy.sh          build what's missing and start everything
+#   ./demo.sh            guided presentation
+#   ./stop.sh            stop everything, keep data; ./deploy.sh starts it again
+#   ./clean.sh           remove containers, volumes and images
+#
+# Zuul runs unmodified.  The Zuul images (localhost/zuul:dev,
+# localhost/zuul-executor:dev) are built natively from Zuul's source by
+# deploy.sh; upstream images are amd64 only, and bubblewrap in the
+# executor can't create namespaces under emulation.
+#
+#   http://localhost:8080   demo UI: announce bundles, watch jobs
+#   http://localhost:8090   git-stream (the fake GitLab)
+#   http://localhost:9000   Zuul web
+#   http://localhost:8000   job logs
+#
+#   sender -> POST /api/stream -> git-stream -> GitLab webhook -> Zuul
+
+name: zuul-git-stream-demo
+
+x-zuul: &zuul
+  image: ${ZUUL_IMAGE:-localhost/zuul:dev}
+  restart: on-failure
+  volumes:
+    - ./etc_zuul:/etc/zuul:z
+    - ./wait-for.sh:/usr/local/bin/wait-for.sh:z
+    - certs:/var/certs:z
+
+services:
+  zk:
+    # Mirror of docker.io/zookeeper
+    image: quay.io/opendevmirror/zookeeper:latest
+    volumes:
+      - ./zoo.cfg:/conf/zoo.cfg:z
+      - certs:/var/certs:z
+    command:
+      - sh
+      - -c
+      - until [ -e /var/certs/keystores/zk.pem ]; do sleep 1; done;
+        exec zkServer.sh start-foreground
+
+  mysql:
+    # Mirror of docker.io/mariadb
+    image: quay.io/opendevmirror/mariadb:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: zuul
+      MYSQL_USER: zuul
+      MYSQL_PASSWORD: secret
+      MYSQL_INITDB_SKIP_TZINFO: 1
+
+  # The fake GitLab, configured by git-stream.toml.  Creates bundles,
+  # ci-tool and zuul-config from ./repos on its first start, applies the
+  # events POSTed to /api/stream, sends GitLab webhooks to zuul-web, and
+  # retries failing jobs before escalating them.
+  git-stream:
+    image: localhost/zuul-git-stream:latest
+    build:
+      context: ..
+      dockerfile: devenv/Containerfile
+    restart: on-failure
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./git-stream.toml:/etc/git-stream/git-stream.toml:z
+      - ./repos:/repos:z
+      - forge:/srv/git-stream
+    command: ["git-stream"]
+
+  init:
+    <<: *zuul
+    restart: "no"
+    volumes:
+      - ./init.sh:/usr/local/bin/init.sh:z
+      - ./certs-tools:/certs-tools:z
+      - certs:/var/certs:z
+    command: ["init.sh"]
+
+  scheduler:
+    <<: *zuul
+    depends_on: [zk, mysql, git-stream]
+    command: ["wait-for.sh", "zk:2281", "mysql:3306", "git-stream:8090", "--",
+              "zuul-scheduler", "-f"]
+
+  merger:
+    <<: *zuul
+    depends_on: [zk, git-stream]
+    command: ["wait-for.sh", "zk:2281", "git-stream:8090", "--",
+              "zuul-merger", "-f"]
+
+  executor:
+    <<: *zuul
+    image: ${ZUUL_EXECUTOR_IMAGE:-localhost/zuul-executor:dev}
+    hostname: executor
+    # Bubblewrap needs to create namespaces.
+    privileged: true
+    depends_on: [zk, git-stream]
+    volumes:
+      - ./etc_zuul:/etc/zuul:z
+      - ./wait-for.sh:/usr/local/bin/wait-for.sh:z
+      - certs:/var/certs:z
+      - logs:/srv/static/logs:z
+      - executor-state:/var/lib/zuul
+    command:
+      - wait-for.sh
+      - zk:2281
+      - git-stream:8090
+      - --
+      - sh
+      - -c
+      - mkdir -p /var/lib/zuul/ssh &&
+        { [ -f /var/lib/zuul/ssh/id_rsa ] ||
+          ssh-keygen -q -t rsa -N '' -f /var/lib/zuul/ssh/id_rsa; } &&
+        exec zuul-executor -f
+
+  web:
+    <<: *zuul
+    depends_on: [zk, mysql]
+    ports:
+      - "9000:9000"
+    command: ["wait-for.sh", "zk:2281", "mysql:3306", "--",
+              "zuul-web", "-f"]
+
+  logs:
+    <<: *zuul
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logserver.py:/usr/local/bin/logserver.py:z
+      - logs:/srv/static/logs:z
+    command: ["python3", "/usr/local/bin/logserver.py"]
+
+  demo-ui:
+    image: localhost/zuul-git-stream:latest
+    restart: on-failure
+    depends_on: [git-stream, web]
+    ports:
+      - "8080:8080"
+    environment:
+      FORGE: http://git-stream:8090
+      ZUUL_API: http://web:9000/api/tenant/example-tenant
+    volumes:
+      - ./demo-ui:/srv/demo-ui:z
+    command: ["python3", "/srv/demo-ui/app.py"]
+
+volumes:
+  certs:
+  forge:
+  logs:
+  executor-state:

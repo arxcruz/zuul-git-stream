@@ -1,0 +1,3 @@
+.zuul-src/
+etc_zuul/site-variables.yaml
+__pycache__/

@@ -1,0 +1,4 @@
+# Read by the bundle tests.  Jobs listed here crash because of a known
+# ci-tool bug (parse_manifest() segfaults on signed bundles).
+broken_jobs:
+  - bundle-security

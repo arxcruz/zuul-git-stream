@@ -1,0 +1,49 @@
+# All jobs run their playbooks on the executor itself (no nodes), which
+# is allowed because they are defined in this trusted config project.
+
+- job:
+    name: base
+    parent: null
+    description: Base job; publishes the job logs to the demo log server.
+    nodeset:
+      nodes: []
+    timeout: 600
+    post-run: playbooks/base/post-logs.yaml
+
+# Bundle testing.  bundle-dispatch runs first and picks which of the
+# bundle-* jobs run (all of them, only the ones that failed last time, or
+# an explicit list); the others are skipped.
+
+- job:
+    name: bundle-dispatch
+    description: Reads the bundle and the rerun comment, and selects the tests to run.
+    run: playbooks/bundle/dispatch.yaml
+    vars:
+      zuul_api: http://web:9000/api/tenant/example-tenant
+      forge_api: http://git-stream:8090/api/v4
+
+- job:
+    name: bundle-test-base
+    abstract: true
+    description: >-
+      Tests the bundle with ci-tool; fails at random like a flaky network,
+      and always where ci-tool has a known bug.
+    run: playbooks/bundle/test.yaml
+    dependencies: [bundle-dispatch]
+    # When the bundle's merge request Depends-On a ci-tool merge request,
+    # Zuul checks out ci-tool with that merge request merged.
+    required-projects:
+      - ci-tool
+    vars:
+      steps: 4
+
+- job: {name: bundle-networking, parent: bundle-test-base, vars: {steps: 6}}
+- job: {name: bundle-storage, parent: bundle-test-base, vars: {steps: 5}}
+- job: {name: bundle-auth, parent: bundle-test-base}
+- job: {name: bundle-api, parent: bundle-test-base, vars: {steps: 5}}
+- job: {name: bundle-upgrade, parent: bundle-test-base, vars: {steps: 7}}
+- job: {name: bundle-rollback, parent: bundle-test-base, vars: {steps: 6}}
+- job: {name: bundle-scale, parent: bundle-test-base, vars: {steps: 7}}
+- job: {name: bundle-security, parent: bundle-test-base}
+- job: {name: bundle-logging, parent: bundle-test-base, vars: {steps: 3}}
+- job: {name: bundle-metrics, parent: bundle-test-base, vars: {steps: 3}}

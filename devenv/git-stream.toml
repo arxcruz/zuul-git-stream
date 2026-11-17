@@ -1,0 +1,32 @@
+# git-stream settings for the demo (mounted as
+# /etc/git-stream/git-stream.toml).  Every option is described in
+# git_stream/config.py; GIT_STREAM_* variables and command line options
+# override these.
+
+[server]
+listen = "0.0.0.0:8090"
+# The name Zuul reaches git-stream by; also used in merge request links.
+base_url = "http://git-stream:8090"
+data = "/srv/git-stream"
+# Create bundles, ci-tool and zuul-config from ./repos on the first start.
+seed = "/repos"
+
+# Tokens for API writes, as user = token.  Zuul's api_token in zuul.conf.
+[api_tokens]
+zuul = "zuul-api-token"
+
+[webhooks]
+urls = ["http://web:9000/api/connection/gitlab/payload"]
+# Zuul's webhook_token in zuul.conf.
+token = "demo-webhook-token"
+
+# Re-run failing jobs until they failed 3 times, then escalate.
+[retry]
+zuul_api = "http://web:9000/api/tenant/example-tenant"
+max_attempts = 3
+report_users = ["zuul"]
+failed_pattern = '^\s*Build failed'
+author = "git-stream"
+# Escalations are shown on http://localhost:8090/escalations; list URLs
+# here to also POST them somewhere (e.g. something that opens Jira tickets).
+escalate = []

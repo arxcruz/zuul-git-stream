@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zuul-git-stream"
+version = "0.1.0"
+description = "A GitLab-compatible fake forge that turns a stream of events into merge requests, pushes and webhooks Zuul understands"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest", "requests"]
+
+[project.scripts]
+git-stream = "git_stream.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["git_stream"]

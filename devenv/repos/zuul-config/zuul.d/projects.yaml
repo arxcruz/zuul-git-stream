@@ -1,0 +1,28 @@
+- project:
+    name: bundles
+    bundle-test:
+      jobs:
+        - bundle-dispatch
+        - bundle-networking
+        - bundle-storage
+        - bundle-auth
+        - bundle-api
+        - bundle-upgrade
+        - bundle-rollback
+        - bundle-scale
+        - bundle-security
+        - bundle-logging
+        - bundle-metrics
+    bundle-rerun:
+      jobs:
+        - bundle-dispatch
+        - bundle-networking
+        - bundle-storage
+        - bundle-auth
+        - bundle-api
+        - bundle-upgrade
+        - bundle-rollback
+        - bundle-scale
+        - bundle-security
+        - bundle-logging
+        - bundle-metrics

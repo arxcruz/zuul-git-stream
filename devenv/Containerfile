@@ -1,0 +1,14 @@
+# git-stream, also used to run the demo UI.  Zuul itself runs from its own
+# unmodified images.
+FROM docker.io/library/python:3.12-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY . /tmp/zuul-git-stream
+RUN pip install --no-cache-dir /tmp/zuul-git-stream \
+  && rm -rf /tmp/zuul-git-stream
+
+EXPOSE 8090
+CMD ["git-stream"]

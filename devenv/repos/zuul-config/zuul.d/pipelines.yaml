@@ -1,0 +1,59 @@
+# Both pipelines are triggered by webhooks from git-stream (connection
+# "gitlab" in zuul.conf).  Zuul doesn't know that the events were sent
+# to git-stream by other systems; to Zuul, git-stream is just a GitLab.
+
+# A bundle is announced as a merge request on the bundles project.  Test
+# it when the merge request is opened, gets a new version or a new
+# description (e.g. a Depends-On line), or when someone comments
+# "recheck".  Results go back to the merge request as a comment, and
+# Zuul approves it when everything passed.
+- pipeline:
+    name: bundle-test
+    description: Tests a container bundle when its merge request is opened or changed.
+    manager: independent
+    precedence: high
+    trigger:
+      gitlab:
+        - event: gl_merge_request
+          action:
+            - opened
+            - changed
+        - event: gl_merge_request
+          action: comment
+          comment: (?i)^\s*recheck\s*$
+    start:
+      gitlab:
+        comment: true
+    success:
+      gitlab:
+        comment: true
+        approval: true
+    failure:
+      gitlab:
+        comment: true
+        approval: false
+
+# Comment "rerun failed", "rerun all" or "rerun <job> <job>..." on a
+# bundle's merge request.  bundle-dispatch reads the comment back from
+# git-stream and tells Zuul which tests to run.
+- pipeline:
+    name: bundle-rerun
+    description: Re-runs some of a bundle's tests, as asked in a merge request comment.
+    manager: independent
+    precedence: high
+    trigger:
+      gitlab:
+        - event: gl_merge_request
+          action: comment
+          comment: (?i)^\s*rerun\b
+    start:
+      gitlab:
+        comment: true
+    success:
+      gitlab:
+        comment: true
+        approval: true
+    failure:
+      gitlab:
+        comment: true
+        approval: false

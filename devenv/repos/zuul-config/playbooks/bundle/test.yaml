@@ -1,0 +1,47 @@
+- hosts: localhost
+  gather_facts: false
+  vars:
+    ci_tool: "{{ zuul.projects.values() | selectattr('short_name', 'equalto', 'ci-tool') | first }}"
+    ci_tool_dir: "{{ zuul.executor.src_root }}/{{ ci_tool.canonical_name }}"
+    # A ci-tool merge request ahead of this bundle (from Depends-On).
+    ci_tool_mr: "{{ zuul['items'] | selectattr('project.short_name', 'equalto', 'ci-tool') | list }}"
+  tasks:
+    - name: Which ci-tool are we using
+      command: git -C {{ ci_tool_dir }} log -1 "--format=%h %s"
+      register: tool_version
+
+    - name: Show it
+      debug:
+        msg: >-
+          bundle {{ bundle_id }} with ci-tool {{ tool_version.stdout }}
+          {{ '(merge request !' ~ ci_tool_mr[0].change ~ ' speculatively merged)'
+             if ci_tool_mr else '(master)' }}
+
+    - name: Load ci-tool's configuration
+      include_vars:
+        file: "{{ ci_tool_dir }}/tool.yaml"
+        name: tool
+
+    - name: Test bundle {{ bundle_id }}
+      debug:
+        msg: "{{ zuul.job }}: step {{ item }} of {{ steps }} on bundle {{ bundle_id }} ... ok"
+      loop: "{{ range(1, steps | int + 1) | list }}"
+      loop_control:
+        pause: 4
+
+    - name: Run the bundle through ci-tool
+      shell: |
+        sleep 3
+        {% if zuul.job in (tool.broken_jobs | default([]) or []) %}
+        echo "ci-tool: Segmentation fault in parse_manifest() for {{ bundle_id }}"
+        exit 139
+        {% elif (100 | random) < (flaky | float * 100) %}
+        echo "curl: (7) Failed to connect to {{ bundle_id }}.bundles.local port 443: Network is unreachable"
+        exit 1
+        {% else %}
+        echo "{{ bundle_id }}.bundles.local answered: 200 OK"
+        {% endif %}
+
+    - name: Done
+      debug:
+        msg: "{{ zuul.job }} passed on bundle {{ bundle_id }}"
