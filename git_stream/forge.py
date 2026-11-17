@@ -39,11 +39,13 @@ def user(username):
 
 
 class Forge:
-    def __init__(self, data_dir, baseurl, emit=None, users=None):
+    def __init__(self, data_dir, baseurl, emit=None, users=None,
+                 stream_tokens=None):
         """emit(payload) is called with every webhook payload, in order.
 
         users maps API tokens to user names; with none configured, any
-        token is accepted and acts as the user "zuul".
+        token is accepted and acts as the user "zuul".  stream_tokens does
+        the same for POST /api/stream senders.
         """
         self.data_dir = data_dir
         self.repo_root = os.path.join(data_dir, 'repos')
@@ -51,6 +53,7 @@ class Forge:
         self.baseurl = baseurl.rstrip('/')
         self.emit = emit or (lambda payload: None)
         self.users = users or {}
+        self.stream_tokens = stream_tokens or {}
         self.lock = threading.RLock()
         os.makedirs(self.repo_root, exist_ok=True)
         self.state = {'projects': {}, 'next_project_id': 1, 'next_mr_id': 1,
@@ -71,6 +74,21 @@ class Forge:
         if not self.users:
             return 'zuul'
         return self.users.get(token)
+
+    def stream_user_for_token(self, token):
+        """The sender a stream token belongs to (None if unknown).
+
+        stream_tokens maps user -> token (as in [api_tokens]); look up the
+        token on the value side.
+        """
+        if not self.stream_tokens:
+            return 'git-stream'
+        if token is None:
+            return None
+        for user, tok in self.stream_tokens.items():
+            if tok == token:
+                return user
+        return None
 
     def repo(self, project):
         return Repo(os.path.join(self.repo_root, project['name'] + '.git'))

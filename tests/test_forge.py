@@ -6,6 +6,7 @@ import urllib.request
 import pytest
 
 from git_stream.forge import Forge
+from conftest import Running
 
 
 def git(*args, cwd=None):
@@ -85,6 +86,27 @@ def test_bad_messages_are_rejected(forge):
         with pytest.raises(urllib.error.HTTPError) as e:
             forge.send(msg)
         assert e.value.code == code
+
+
+def test_stream_requires_a_token_when_configured(forge, tmp_path):
+    # With no stream tokens configured the stream is open (the default).
+    forge.send({'action': 'push', 'project': 'bundles', 'files': {'a': '1'}})
+    # A fresh forge (its own data dir) with tokens configured: only a valid
+    # token is accepted.
+    r = Running(str(tmp_path / 'streamdata'),
+                stream_tokens={'build-system': 'secret-stream'})
+    r.forge.create_project('bundles', {'README.md': 'x'})
+    try:
+        msg = {'action': 'push', 'project': 'bundles', 'files': {'a': '1'}}
+        with pytest.raises(urllib.error.HTTPError) as e:
+            r.send(msg)
+        assert e.value.code == 401
+        with pytest.raises(urllib.error.HTTPError) as e:
+            r.send(msg, token='nope')
+        assert e.value.code == 401
+        r.send(msg, token='secret-stream')  # works
+    finally:
+        r.stop()
 
 
 def test_state_survives_restart(forge, tmp_path):

@@ -56,6 +56,9 @@ def parse_args(argv=None):
     parser.add_argument('--webhook-token', help='sent as X-Gitlab-Token')
     parser.add_argument('--api-token', action='append',
                         metavar='USER=TOKEN', help='API token (repeatable)')
+    parser.add_argument('--stream-token', action='append',
+                        metavar='USER=TOKEN',
+                        help='token required on POST /api/stream (repeatable)')
     parser.add_argument('--zuul-api', help="Zuul's tenant API URL; turns on "
                         'retries, e.g. http://zuul:9000/api/tenant/main')
     parser.add_argument('--max-attempts', type=int,
@@ -77,6 +80,8 @@ def parse_args(argv=None):
                   'report_users': args.report_user},
         'api_tokens': dict(item.partition('=')[::2]
                            for item in args.api_token or []),
+        'stream': {'tokens': dict(item.partition('=')[::2]
+                                  for item in args.stream_token or [])},
     }
     try:
         return config.load(args.config, overrides=overrides)
@@ -88,6 +93,7 @@ def main(argv=None):
     settings = parse_args(argv)
     server_cfg, hooks, retry = (settings['server'], settings['webhooks'],
                                 settings['retry'])
+    log = logging.getLogger('git_stream')
     logging.basicConfig(
         level=logging.DEBUG if server_cfg['debug'] else logging.INFO,
         format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -95,11 +101,19 @@ def main(argv=None):
     base_url = server_cfg['base_url'] or 'http://%s:%s' % (
         'localhost' if host in ('', '0.0.0.0') else host, port)
     users = {token: user for user, token in settings['api_tokens'].items()}
+    stream_tokens = dict(settings['stream']['tokens'])
+    if stream_tokens:
+        log.info('POST /api/stream requires a token (%s)',
+                 ', '.join(stream_tokens))
+    else:
+        log.warning('POST /api/stream is open; set [stream] tokens to '
+                    'require one')
 
     sender = WebhookSender(hooks['urls'], hooks['token'],
                            max_backoff=hooks['max_backoff'])
     observers = [sender.emit]
     forge = Forge(server_cfg['data'], base_url, users=users,
+                  stream_tokens=stream_tokens,
                   emit=lambda payload: [f(payload) for f in observers])
     if retry['zuul_api']:
         policy = RetryPolicy(
@@ -114,7 +128,6 @@ def main(argv=None):
     sender.start()
 
     server = serve(forge, sender, host or '0.0.0.0', int(port))
-    log = logging.getLogger('git_stream')
     log.info('Serving on %s (base URL %s); webhooks to %s',
              server_cfg['listen'], base_url,
              ', '.join(hooks['urls']) or 'nobody')

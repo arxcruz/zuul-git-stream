@@ -40,6 +40,8 @@ class Repo:
         repo = cls(path)
         repo.git('init', '-q', '--bare', '-b', branch)
         # Serve every ref (including refs/merge-requests/*) over HTTP.
+        # http-backend is a CGI program and does no access control of its
+        # own; git-stream enforces the git token (see server.py:_git).
         repo.git('config', 'http.uploadpack', 'true')
         return repo
 

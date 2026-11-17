@@ -32,13 +32,21 @@ MR_PAGE_RE = re.compile(r'^/(?P<project>.+?)/(?:-/)?merge_requests/'
                         r'(?P<iid>\d+)/?$')
 
 
-def make_handler(forge, sender=None):
+def make_handler():
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
         server_version = 'git-stream'
 
         def log_message(self, fmt, *args):
             log.debug('%s %s', self.address_string(), fmt % args)
+
+        @property
+        def forge(self):
+            return self.server.forge
+
+        @property
+        def sender(self):
+            return getattr(self.server, 'sender', None)
 
         # -- plumbing --------------------------------------------------------
 
@@ -65,13 +73,23 @@ def make_handler(forge, sender=None):
             if 'chunked' in self.headers.get('Transfer-Encoding', ''):
                 data = b''
                 while True:
-                    size = int(self.rfile.readline().split(b';')[0], 16)
+                    line = self.rfile.readline()
+                    if not line:
+                        return data  # connection closed mid-body
+                    size = int(line.split(b';')[0] or 0, 16)
                     if size == 0:
                         self.rfile.readline()
                         return data
                     data += self.rfile.read(size)
                     self.rfile.readline()
-            return self.rfile.read(int(self.headers.get('Content-Length', 0)))
+            length = self.headers.get('Content-Length')
+            try:
+                length = int(length) if length is not None else 0
+            except ValueError:
+                length = 0
+            if length <= 0:
+                return b''
+            return self.rfile.read(length)
 
         def _params(self, query):
             """Request parameters: query string, form or JSON body."""
@@ -94,7 +112,19 @@ def make_handler(forge, sender=None):
                 self.headers.get('PRIVATE-TOKEN')
             if token is None:
                 return None
-            return forge.user_for_token(token)
+            return self.forge.user_for_token(token)
+
+        def _stream_user(self):
+            """The sender a stream token names, or None.  With no stream
+            tokens configured, every sender is the git-stream user."""
+            auth = self.headers.get('Authorization', '')
+            if auth.startswith('Bearer '):
+                token = auth[len('Bearer '):]
+            elif self.headers.get('X-Stream-Token'):
+                token = self.headers['X-Stream-Token']
+            else:
+                token = None
+            return self.forge.stream_user_for_token(token)
 
         def _dispatch(self):
             url = urllib.parse.urlsplit(self.path)
@@ -107,7 +137,7 @@ def make_handler(forge, sender=None):
                     return self._git(m.group('repo'), path, url.query)
                 # The forge's lock is re-entrant; holding it here keeps
                 # readers from seeing the state while it changes.
-                with forge.lock:
+                with self.forge.lock:
                     if path.startswith(API):
                         return self._api(path[len(API):], url.query)
                     if path.startswith('/api/stream'):
@@ -119,7 +149,7 @@ def make_handler(forge, sender=None):
                 self._error(e.status, str(e))
             except Exception as e:
                 log.exception('Error handling %s %s', self.command, self.path)
-                self._error(500, str(e))
+                self._error(500, '%s: %s' % (type(e).__name__, e))
 
         do_GET = do_POST = do_PUT = do_HEAD = _dispatch
 
@@ -131,23 +161,23 @@ def make_handler(forge, sender=None):
             if not parts:
                 if self.command != 'GET':
                     return self._error(405, '405 Method Not Allowed')
-                return self._json([forge.project_json(p) for p in
-                                   forge.state['projects'].values()])
+                return self._json([self.forge.project_json(p) for p in
+                                   self.forge.state['projects'].values()])
             project = urllib.parse.unquote(parts[0])
             rest = parts[1:]
-            p = forge.project(project)
+            p = self.forge.project(project)
             if self.command != 'GET':
                 by = self._user()
                 if by is None:
                     return self._error(401, '401 Unauthorized')
 
             if not rest:
-                return self._json(forge.project_json(p))
+                return self._json(self.forge.project_json(p))
             if rest[:2] == ['repository', 'branches']:
                 return self._branches(p, rest[2:], params)
             if (rest[:2] == ['repository', 'files'] and len(rest) > 3 and
                     rest[-1] == 'raw' and self.command == 'GET'):
-                content = forge.repo(p).read_file(
+                content = self.forge.repo(p).read_file(
                     params.get('ref', p['default_branch']),
                     urllib.parse.unquote('/'.join(rest[2:-1])))
                 if content is None:
@@ -157,33 +187,33 @@ def make_handler(forge, sender=None):
                 return self._error(404, '404 Not Found')
             if len(rest) == 1:
                 return self._list_mrs(p, params)
-            mr = forge.mr(p, int(rest[1]))
+            mr = self.forge.mr(p, int(rest[1]))
             sub = rest[2] if len(rest) > 2 else None
             if self.command == 'GET':
                 if sub is None:
-                    return self._json(forge.mr_json(p, mr))
+                    return self._json(self.forge.mr_json(p, mr))
                 if sub == 'approvals':
-                    return self._json(forge.approvals_json(p, mr))
+                    return self._json(self.forge.approvals_json(p, mr))
                 if sub == 'notes':
-                    notes = forge.notes(p['name'], mr['iid'])
+                    notes = self.forge.notes(p['name'], mr['iid'])
                     if params.get('sort', 'desc') == 'desc':
                         notes.reverse()
                     return self._json(notes)
             elif self.command == 'POST':
                 if sub == 'notes':
-                    return self._json(forge.comment(
+                    return self._json(self.forge.comment(
                         p['name'], mr['iid'], params.get('body', ''), by), 201)
                 if sub == 'approve':
-                    return self._json(forge.approve(
+                    return self._json(self.forge.approve(
                         p['name'], mr['iid'], by, params.get('sha')), 201)
                 if sub == 'unapprove':
-                    return self._json(forge.unapprove(
+                    return self._json(self.forge.unapprove(
                         p['name'], mr['iid'], by), 201)
             elif self.command == 'PUT':
                 if sub == 'merge':
                     squash = str(params.get('squash', '')).lower() in (
                         'true', '1')
-                    return self._json(forge.merge(p['name'], mr['iid'], by,
+                    return self._json(self.forge.merge(p['name'], mr['iid'], by,
                                                   squash=squash))
                 if sub is None:
                     add = stream._labels(params.get('add_labels'))
@@ -193,7 +223,7 @@ def make_handler(forge, sender=None):
                         add += wanted
                         remove += [x for x in mr['labels']
                                    if x not in wanted]
-                    return self._json(forge.update_mr(
+                    return self._json(self.forge.update_mr(
                         p['name'], mr['iid'], by,
                         title=params.get('title'),
                         description=params.get('description'),
@@ -204,16 +234,16 @@ def make_handler(forge, sender=None):
         def _branches(self, p, rest, params):
             if self.command != 'GET':
                 return self._error(405, '405 Method Not Allowed')
-            branches = forge.repo(p).branches()
+            branches = self.forge.repo(p).branches()
             if rest:
                 name = urllib.parse.unquote('/'.join(rest))
                 if name not in branches:
                     return self._error(404, '404 Branch Not Found')
-                return self._json(forge.branch_json(p, name, branches[name]))
+                return self._json(self.forge.branch_json(p, name, branches[name]))
             page = int(params.get('page', 1))
             per_page = int(params.get('per_page', 20))
             names = sorted(branches)[(page - 1) * per_page:page * per_page]
-            return self._json([forge.branch_json(p, n, branches[n])
+            return self._json([self.forge.branch_json(p, n, branches[n])
                                for n in names])
 
         def _list_mrs(self, p, params):
@@ -222,18 +252,22 @@ def make_handler(forge, sender=None):
             state = params.get('state', 'all')
             mrs = sorted(p['mrs'].values(), key=lambda m: -m['iid'])
             per_page = int(params.get('per_page', 20))
-            return self._json([forge.mr_json(p, m) for m in mrs
+            return self._json([self.forge.mr_json(p, m) for m in mrs
                                if state in ('all', m['state'])][:per_page])
 
         # -- stream ----------------------------------------------------------
 
         def _stream(self, path, query):
             if path == '/api/stream/deliveries' and self.command == 'GET':
-                return self._json(list(sender.recent) if sender else [])
+                return self._json(list(self.sender.recent)
+                                  if self.sender else [])
             if path == '/api/stream/escalations' and self.command == 'GET':
-                return self._json(forge.escalations())
+                return self._json(self.forge.escalations())
             if path != '/api/stream' or self.command != 'POST':
                 return self._error(404, '404 Not Found')
+            by = self._stream_user()
+            if by is None:
+                return self._error(401, '401 Unauthorized')
             try:
                 msgs = json.loads(self._body() or b'null')
             except ValueError as e:
@@ -242,24 +276,24 @@ def make_handler(forge, sender=None):
                 results = []
                 for msg in msgs:
                     try:
-                        results.append(stream.apply(forge, msg))
+                        results.append(stream.apply(self.forge, msg))
                     except ForgeError as e:
                         results.append({'error': str(e)})
                 return self._json(results)
-            return self._json(stream.apply(forge, msgs))
+            return self._json(stream.apply(self.forge, msgs))
 
         # -- git over HTTP ---------------------------------------------------
 
         def _git(self, repo, path, query):
-            if repo[:-4] not in forge.state['projects']:
+            if repo[:-4] not in self.forge.state['projects']:
                 return self._send(404, 'Repository not found\n', 'text/plain')
             if 'receive-pack' in path or 'receive-pack' in query:
                 return self._send(403, 'This forge is read-only over git; '
-                                  'send a "push" stream message instead.\n',
+                                      'send a "push" stream message instead.\n',
                                   'text/plain')
             body = self._body() if self.command == 'POST' else b''
             env = dict(os.environ,
-                       GIT_PROJECT_ROOT=forge.repo_root,
+                       GIT_PROJECT_ROOT=self.forge.repo_root,
                        GIT_HTTP_EXPORT_ALL='1',
                        PATH_INFO=path, QUERY_STRING=query,
                        REQUEST_METHOD=self.command,
@@ -291,17 +325,17 @@ def make_handler(forge, sender=None):
         def _page(self, path):
             path = urllib.parse.unquote(path)
             m = MR_PAGE_RE.match(path)
-            if m and m.group('project') in forge.state['projects']:
-                p = forge.project(m.group('project'))
-                return self._html(*mr_page(forge, p, forge.mr(
+            if m and m.group('project') in self.forge.state['projects']:
+                p = self.forge.project(m.group('project'))
+                return self._html(*mr_page(self.forge, p, self.forge.mr(
                     p, int(m.group('iid')))))
             name = path.strip('/')
             if not name:
-                return self._html(*index_page(forge))
+                return self._html(*index_page(self.forge))
             if name == 'escalations':
-                return self._html(*escalations_page(forge))
-            if name in forge.state['projects']:
-                return self._html(*project_page(forge, forge.project(name)))
+                return self._html(*escalations_page(self.forge))
+            if name in self.forge.state['projects']:
+                return self._html(*project_page(self.forge, self.forge.project(name)))
             self._send(404, 'Not found\n', 'text/plain')
 
         def _html(self, title, body):
@@ -313,9 +347,11 @@ def make_handler(forge, sender=None):
 
 
 def serve(forge, sender, host, port):
-    server = http.server.ThreadingHTTPServer(
-        (host, port), make_handler(forge, sender))
+    handler = make_handler()
+    server = http.server.ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
+    server.forge = forge
+    server.sender = sender
     return server
 
 

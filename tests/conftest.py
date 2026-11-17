@@ -18,11 +18,12 @@ if not hasattr(socket, 'TCP_KEEPIDLE') and hasattr(socket, 'TCP_KEEPALIVE'):
 class Running:
     """A forge served on a free local port, recording its webhooks."""
 
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, stream_tokens=None):
         self.hooks = []
         self.forge = Forge(str(data_dir), 'http://placeholder',
                            emit=self.hooks.append,
-                           users={API_TOKEN: 'zuul'})
+                           users={API_TOKEN: 'zuul'},
+                           stream_tokens=stream_tokens)
         self.server = serve(self.forge, None, '127.0.0.1', 0)
         self.url = 'http://127.0.0.1:%d' % self.server.server_address[1]
         self.forge.baseurl = self.url
@@ -30,10 +31,13 @@ class Running:
                                        daemon=True)
         self.thread.start()
 
-    def send(self, msg):
+    def send(self, msg, token=None):
+        headers = {'Content-Type': 'application/json'}
+        if token is not None:
+            headers['X-Stream-Token'] = token
         req = urllib.request.Request(
             self.url + '/api/stream', data=json.dumps(msg).encode(),
-            headers={'Content-Type': 'application/json'}, method='POST')
+            headers=headers, method='POST')
         with urllib.request.urlopen(req) as r:
             return json.load(r)
 

@@ -12,6 +12,10 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   [api_tokens]                          # user = token; tokens for writes
   zuul = "secret-api-token"
 
+  [stream]                              # POST /api/stream; open unless a
+                                        # token is set
+  build-system = "secret-stream-token"
+
   [webhooks]
   urls = ["http://zuul-web:9000/api/connection/gitlab/payload"]
   token = "secret-webhook-token"        # sent as X-Gitlab-Token
@@ -42,6 +46,12 @@ SCHEMA = {
         'debug': (False, bool, 'GIT_STREAM_DEBUG'),
     },
     'api_tokens': {},
+    # user = token; POST /api/stream requires one when any are configured.
+    # With none, the stream is open (fine for a demo; set tokens in
+    # production so only the announcing system can drive the forge).
+    'stream': {
+        'tokens': ({}, dict, 'GIT_STREAM_STREAM_TOKENS'),
+    },
     'webhooks': {
         'urls': ([], list, 'GIT_STREAM_WEBHOOKS'),
         'token': ('', str, 'GIT_STREAM_WEBHOOK_TOKEN'),
@@ -65,7 +75,11 @@ class ConfigError(Exception):
 
 
 def _convert(value, kind, where):
-    if kind is list:
+    if kind is dict:
+        if isinstance(value, dict) and all(
+                isinstance(v, str) for v in value.values()):
+            return value
+    elif kind is list:
         if isinstance(value, str):
             return value.split()
         if isinstance(value, list) and all(isinstance(v, str) for v in value):
@@ -129,10 +143,14 @@ def load(path=None, environ=None, overrides=None):
         for name, (_, kind, var) in options.items():
             if environ.get(var) is not None:
                 settings[section][name] = _convert(environ[var], kind, var)
-    # API tokens from the environment: "user=token user=token".
-    for item in (environ.get('GIT_STREAM_API_TOKENS') or '').split():
-        user, _, token = item.partition('=')
-        settings['api_tokens'][user] = token
+    # Map tokens from the environment: "user=token user=token".
+    for section, var in (('api_tokens', 'GIT_STREAM_API_TOKENS'),
+                         ('git', 'GIT_STREAM_GIT_TOKENS'),
+                         ('stream', 'GIT_STREAM_STREAM_TOKENS')):
+        for item in (environ.get(var) or '').split():
+            user, _, token = item.partition('=')
+            if user and token:
+                settings[section][user] = token
 
     for section, values in (overrides or {}).items():
         for name, value in values.items():
