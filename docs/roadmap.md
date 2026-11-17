@@ -17,9 +17,9 @@
 ## Next, by priority
 
 ### Production hardening (needed before real use)
-1. **Authenticate `POST /api/stream`**: per-sender tokens (reuse
-   `[api_tokens]` or a new `[stream_tokens]`).  Today anyone who can
-   reach it can open MRs and trigger jobs.
+1. ~~**Authenticate `POST /api/stream`**~~ **done** — per-sender tokens via
+   `[stream]`; open (with a loud warning) when unset. See
+   [security.md](security.md).
 2. **Durable webhook queue**: pending deliveries are in memory and lost
    on restart.  Persist them (with the state) and add a redeliver API.
 3. **Durable retry queue**: same for `retry.py` (a restart between

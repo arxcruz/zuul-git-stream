@@ -231,6 +231,7 @@ isn't installed.
 - [docs/architecture.md](docs/architecture.md): components, state, flows
 - [docs/zuul-contract.md](docs/zuul-contract.md): exactly what Zuul's GitLab driver needs
 - [docs/demo.md](docs/demo.md): the podman demo, its Zuul config and APIs
+- [docs/security.md](docs/security.md): secrets, tokens, and the production deploy
 - [docs/decisions.md](docs/decisions.md): why it's built this way
 - [docs/roadmap.md](docs/roadmap.md): status and what's next
 - [AGENTS.md](AGENTS.md): how to continue the work (for AI agents and people)
