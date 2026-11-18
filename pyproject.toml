@@ -29,6 +29,7 @@ addopts = "-ra --strict-markers --strict-config"
 xfail_strict = true
 markers = [
     "contract: drives Zuul's real GitLab driver; needs Zuul installed (deselect with -m 'not contract')",
+    "slow: takes about a second or more (real waits and timeouts); the fast loop skips it with -m 'not slow'",
 ]
 
 [tool.ruff]

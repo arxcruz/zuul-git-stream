@@ -175,14 +175,23 @@ Run from the repo root, with the venv from above (`.venv/bin/python`).
 
 | Purpose | Command |
 |---------|---------|
-| Fast inner loop | the tests for the area you're changing (e.g. `.venv/bin/python -m pytest tests/test_stream_*.py -q`), plus the contract tests below (about 7 seconds) |
+| Fast loop (whole suite, skipping the slow tests) | `.venv/bin/python -m pytest -m "not slow" -x -q` (about 1 minute; includes the contract tests) |
+| Narrower loop | the tests for the area you're changing (e.g. `.venv/bin/python -m pytest tests/test_stream_*.py -q`), plus the contract tests below (about 7 seconds) |
 | One test | `.venv/bin/python -m pytest tests/test_stream_apply.py::test_the_sender_is_the_default_author` |
 | Contract tests only | `.venv/bin/python -m pytest -m contract` |
 | Lint | `.venv/bin/python -m ruff check .` |
-| **Full gate** | `scripts/check.sh` (ruff, then every test; ~2.5 min) |
+| **Full gate** | `scripts/check.sh` (ruff, then every test, slow ones included; ~1.5 min) |
 
-**Only the full gate counts for "done".**  The fast loop and a single test
-are for iterating; never report work finished on them.
+**Only the full gate counts for "done".**  The fast loop, the narrower loop
+and a single test are for iterating; never report work finished on them.
+
+Tests marked `slow` (registered in `pyproject.toml`) are the ones that take
+about a second or more because they wait on purpose: timeouts, retry
+backoff, "nothing arrives" checks.  Only the fast loop skips them; the full
+gate runs everything.  The marker is `@pytest.mark.slow` on the test; mark a
+new test when its call phase takes about a second or more
+(`pytest --durations=25`), and never use it to hide a test that fails.  The
+contract tests are never slow-marked, so the fast loop always runs them.
 
 ### The gate: run before saying done
 

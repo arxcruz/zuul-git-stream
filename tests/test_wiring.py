@@ -160,6 +160,7 @@ def served(settings, make):
         server.server_close()
 
 
+@pytest.mark.slow
 def test_request_limits_reach_the_server(served):
     url = served('max_body = 300\nread_timeout = 1')
     req = urllib.request.Request(

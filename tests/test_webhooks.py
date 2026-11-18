@@ -114,6 +114,7 @@ def test_events_arrive_in_the_order_they_happened(receivers, sender):
     assert r.ns == list(range(1, 8))
 
 
+@pytest.mark.slow
 def test_a_server_error_is_retried_and_later_events_wait(receivers, sender):
     r = receivers(lambda n, payload: 503 if n == 1 else 200)
     s = sender([r.url])
@@ -148,6 +149,7 @@ def test_a_4xx_is_kept_as_failed_and_not_retried(
 
 # -- one URL per queue ---------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_dead_url_does_not_delay_a_healthy_one(receivers, sender):
     dead = receivers(lambda n, payload: 503)
     healthy = receivers()
@@ -158,6 +160,7 @@ def test_a_dead_url_does_not_delay_a_healthy_one(receivers, sender):
     assert dead.ns and set(dead.ns) == {1}  # still retrying event 1, only
 
 
+@pytest.mark.slow
 def test_each_url_keeps_its_own_order(receivers, sender):
     flaky = receivers(lambda n, payload: 503 if n == 1 else 200)
     steady = receivers()
@@ -170,6 +173,7 @@ def test_each_url_keeps_its_own_order(receivers, sender):
     assert [e['url'] for e in s.recent].count(steady.url) == 3
 
 
+@pytest.mark.slow
 def test_a_later_event_reaches_a_recovered_url(receivers, sender):
     state = {'up': False}
     r = receivers(lambda n, payload: 200 if state['up'] else 503)
@@ -181,6 +185,7 @@ def test_a_later_event_reaches_a_recovered_url(receivers, sender):
     assert wait_for(lambda: r.ns[-2:] == [1, 2])
 
 
+@pytest.mark.slow
 def test_stopping_ends_every_delivery_thread_even_mid_retry(receivers, sender):
     def webhook_threads():
         return {t for t in threading.enumerate()
