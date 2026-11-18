@@ -40,8 +40,8 @@ persistent failures are escalated (Jira later).
   used a Kafka driver; the user explicitly removed Kafka from this one.
   Events come in over HTTP only.
 - **Nothing public.**  Do not create a GitHub repo, push, or publish
-  anything from this repository unless the user asks.  Commits only when
-  asked.
+  anything from this repository unless the user asks.  Commit on a branch as
+  described in [Workflow](#workflow).
 - **Don't touch `../zuul-kafka-driver`.**  It has uncommitted work the
   user wants left as it is.
 - **Stay GitLab-compatible.**  Any API/webhook change must keep Zuul's
@@ -50,6 +50,30 @@ persistent failures are escalated (Jira later).
   host).  Python >= 3.11 (`tomllib`).
 - Jira integration is wanted **later**, not now.  Escalations are shown
   on pages; `[retry] escalate` URLs are the future hook.
+
+## Workflow
+
+- **Never commit directly to `main`.**  Start every change on a branch named
+  `<type>/<short-topic>`, for example `fix/git-option-injection` or
+  `feat/stream-labels`.
+- **One branch per task.**  Commit in small steps, with the tests in the same
+  commit as the code they cover.
+- **Before saying a task is done, run the full check command**
+  (`scripts/check.sh`, see [The gate](#the-gate-run-before-saying-done)).  A
+  branch is ready only when it is green.
+- **Never merge to `main` yourself.**  Present the branch and a summary of the
+  diff; the human merges.
+
+A Claude Code hook enforces the first rule: `.claude/hooks/no-commit-on-main.py`
+(a `PreToolUse` hook on the Bash tool, configured in `.claude/settings.json`)
+blocks `git commit` and `git push` while the repository is on `main` or
+`master`, and says to run `git switch -c <type>/<topic>`.  `git switch -c` and
+`git checkout -b` are never blocked.  It is a guardrail, not a security
+boundary (it does not catch aliases, scripts that call git themselves, or
+`git push origin main` from another branch), and it is covered by
+`tests/test_branch_guard_hook.py`.  A session that started before
+`.claude/settings.json` existed does not load it until you open `/hooks` or
+restart.
 
 ## Repository layout
 
@@ -77,11 +101,13 @@ tests/
   test_git_read_only.py   git over HTTP is read-only however a push is spelled
   test_safety_net.py      contract tests without Zuul; scripts/check.sh
   test_pending.py         the tests/pending.txt mechanism
+  test_branch_guard_hook.py  the hook that blocks commits on main
   test_stream_identity.py, test_server_limits.py, test_insecure_defaults.py,
   test_legacy_state.py, test_wiring.py
                           specs for behavior not built yet (see the backlog)
   pending.txt             the tests that are strict xfails until built
 scripts/check.sh          the "run before saying done" gate (lint + all tests)
+.claude/                  project Claude Code config: settings.json, hooks/
 devenv/                   podman demo (Zuul + git-stream + demo UI)
   deploy.sh stop.sh clean.sh demo.sh check.sh common.sh
   compose.yaml Containerfile git-stream.toml
@@ -108,7 +134,7 @@ uv pip install -p .venv/bin/python 'git+https://opendev.org/zuul/zuul'
 ### The gate: run before saying done
 
 ```sh
-scripts/check.sh      # ruff check, then the full pytest suite (218 tests, ~2 min)
+scripts/check.sh      # ruff check, then the full pytest suite (262 tests, ~2 min)
 ```
 
 This is what CI would run (see [docs/ci.md](docs/ci.md)); there is no CI
