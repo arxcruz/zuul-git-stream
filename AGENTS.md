@@ -85,6 +85,19 @@ boundary (it does not catch aliases, scripts that call git themselves, or
 `.claude/settings.json` existed does not load it until you open `/hooks` or
 restart.
 
+A second hook, `.claude/hooks/stop-checks.py` (a `Stop` hook, timeout 120 s),
+runs `ruff check .` and then `pytest -n auto -m "not slow" -x -q` when you try
+to finish a turn, but only if a code or test file changed in the working tree
+(tracked or untracked; markdown and docs-only changes don't count).  If a
+check fails it blocks the stop and hands you the output; fix it and finish
+again.  It does nothing on `main`/`master`, never changes the repository,
+skips a tree it already checked (state in `$TMPDIR/git-stream-stop-hook/`),
+lets an unchanged failing tree through rather than blocking forever, and fails
+open (a note on stderr) when the venv, ruff or time is missing.  **It is not
+the gate**: it skips the slow tests, so only `scripts/check.sh` means done.
+Covered by `tests/test_stop_hook.py`; the reasons are in
+[docs/decisions.md](docs/decisions.md) (decision 13).
+
 ## Security rules
 
 - **No bare user strings as git arguments.**  Anything from a request (branch,
@@ -144,6 +157,7 @@ tests/
   test_pending.py         the tests/pending.txt mechanism
   test_branch_guard_hook.py  the hook that blocks commits on main
   test_review_hook.py     the hook that keeps the branch-reviewer read-only
+  test_stop_hook.py       the Stop hook that runs the fast checks
   test_stream_identity.py who a stream message acts as (token, not "author")
   test_stream_apply.py    stream.apply's choke point without HTTP
   test_server_limits.py, test_insecure_defaults.py,
