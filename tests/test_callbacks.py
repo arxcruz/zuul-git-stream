@@ -33,16 +33,19 @@ SECRET_URL = '/hook?token=s3cret-callback-token'
 class Receiver:
     """The announcer's endpoint: records every POST it gets.
 
-    status answers every POST with that HTTP status; delay holds each one
-    that long before answering.
+    status answers every POST with that HTTP status (reason is its status
+    line text, location a Location header); delay holds each one that long
+    before answering.
     """
 
-    def __init__(self, status=200, delay=0):
+    def __init__(self, status=200, delay=0, reason=None, location=None):
         self.bodies = []
         self.headers = []
         self.attempts = 0
         self.status = status
         self.delay = delay
+        self.reason = reason
+        self.location = location
         me = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -56,7 +59,9 @@ class Receiver:
                 me.headers.append(dict(self.headers))
                 time.sleep(me.delay)
                 me.bodies.append(body)
-                self.send_response(me.status)
+                self.send_response(me.status, me.reason)
+                if me.location:
+                    self.send_header('Location', me.location)
                 self.send_header('Content-Length', '2')
                 self.end_headers()
                 self.wfile.write(b'{}')
@@ -285,6 +290,33 @@ def test_a_successful_delivery_is_recorded(cb, receiver):
     assert wait_for(delivered(cb))
     [record] = mr_json(cb)['callback']
     assert record['status'] == 'delivered'
+
+
+@pytest.mark.parametrize('status', [301, 302, 307, 308])
+def test_a_redirect_is_a_failure_and_is_not_followed(cb, receiver, status):
+    elsewhere = receiver()
+    r = receiver(status=status, location=elsewhere.url)
+    mr = open_bundle(cb, callback_url=r.url)
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(delivered(cb))
+    [record] = mr_json(cb)['callback']
+    assert record['status'].startswith('failed: ') and str(status) in (
+        record['status'])
+    time.sleep(0.5)
+    assert r.attempts == 1 and elsewhere.attempts == 0
+
+
+def test_the_url_is_removed_from_the_error_text(cb, receiver):
+    """The receiver chooses the status line, so it can put the URL, secret
+    and all, in the very text the recorded cause is made of."""
+    r = receiver(status=500)
+    r.reason = r.url  # the status line of the response is the URL
+    mr = open_bundle(cb, callback_url=r.url)
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(delivered(cb))
+    [record] = mr_json(cb)['callback']
+    assert 's3cret-callback-token' not in record['status']
+    assert record['status'] == 'failed: HTTP Error 500: <callback_url>'
 
 
 def test_a_hanging_callback_delays_neither_zuul_nor_other_mrs(cb, receiver):
