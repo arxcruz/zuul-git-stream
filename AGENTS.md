@@ -64,8 +64,9 @@ persistent failures are escalated (Jira later).
 - **Before saying a task is done, run the full check command**
   (`scripts/check.sh`, see [The gate](#the-gate-run-before-saying-done)).  A
   branch is ready only when it is green.
-- **Never merge to `main` yourself.**  Present the branch and a summary of the
-  diff; the human merges.  Don't push either unless asked.
+- **Merge to `main` only after the human explicitly approves that branch in
+  the current conversation.**  Never merge on your own judgment, and never push
+  unless asked.  Present the branch and a summary of the diff, then wait.
 
 A Claude Code hook enforces the first rule: `.claude/hooks/no-commit-on-main.py`
 (a `PreToolUse` hook on the Bash tool, configured in `.claude/settings.json`)
