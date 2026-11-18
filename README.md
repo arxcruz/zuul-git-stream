@@ -53,8 +53,14 @@ seconds.  Then open:
 ./clean.sh --keep-images   # same, but keep the images for a fast redeploy
 ```
 
-The demo is also reachable from other computers on the network;
-`deploy.sh` prints the URLs (set `DEMO_HOST` to override the address).
+The first `./deploy.sh` creates `devenv/.env` with random database
+passwords and tokens (from `devenv/.env.example`; it is not committed) and
+writes `etc_zuul/zuul.conf` from `zuul.conf.in`.  The ports are published
+on `127.0.0.1` only, because the demo's stream is open
+(`[server] insecure = true`).  To reach it from other computers, set
+`DEMO_BIND` in `.env` (and `DEMO_HOST` for the printed URLs), knowing that
+anyone who can reach the demo can then drive it.  See
+[docs/security.md](docs/security.md).
 
 ### The scenario
 
@@ -111,10 +117,15 @@ An event is a JSON object with an `action`.  Send it to `POST
   addressed by it later (`"mr": "b-0042"`).  Opening a merge request with a key that is still
   open updates it instead.
 - An event `id` makes a resent event a no-op.
+- The stream is secure by default: with no `[stream] tokens` it answers 401
+  ("no stream tokens are configured"), and with no `[api_tokens]` the REST
+  API refuses writes.  `[server] insecure = true` (demos only) accepts any
+  API token and opens the stream.  Configured tokens are always enforced.
 - An event acts as the sender, not as whatever its `author` says.  With
   `[stream] tokens` (`user = token`) set, it acts as the user its token
-  names; `author` may repeat that user, and naming anyone else is a 403.
-  On an open stream (no tokens) it acts as `git-stream`; `author` may be
+  names (sent as `X-Stream-Token` or `Authorization: Bearer`); `author` may
+  repeat that user, and naming anyone else is a 403.
+  On an open (insecure) stream it acts as `git-stream`; `author` may be
   any name except `[retry] report_users` (default `zuul`), which is a 403,
   because a forged `Build failed` from Zuul would drive the retries.
 
@@ -195,9 +206,13 @@ listen = "0.0.0.0:8090"
 base_url = "http://git-stream:8090"   # how Zuul reaches git-stream
 data = "/srv/git-stream"              # repositories and state
 seed = "/repos"                       # optional: create projects from these dirs
+insecure = false                      # true: demos only, see docs/security.md
 
 [api_tokens]                          # user = token, for API writes
 zuul = "API_TOKEN"
+
+[stream.tokens]                       # user = token, for POST /api/stream
+build-system = "STREAM_TOKEN"
 
 [webhooks]
 urls = ["http://zuul-web:9000/api/connection/gitlab/payload"]
@@ -214,7 +229,9 @@ build_url = "http://zuul-web:9000/build"
 ```
 
 Environment variables (`GIT_STREAM_MAX_ATTEMPTS`, `GIT_STREAM_WEBHOOKS`,
-...) override the file, and command line options (`git-stream --help`)
+...) override the file; tokens can live there instead of in it:
+`GIT_STREAM_API_TOKENS="zuul=..."`, `GIT_STREAM_STREAM_TOKENS="user=..."`,
+`GIT_STREAM_WEBHOOK_TOKEN`, and command line options (`git-stream --help`)
 override both.  `git` (2.38 or newer) must be installed.
 
 And in `zuul.conf`:

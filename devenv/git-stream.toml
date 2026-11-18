@@ -10,15 +10,17 @@ base_url = "http://git-stream:8090"
 data = "/srv/git-stream"
 # Create bundles, ci-tool and zuul-config from ./repos on the first start.
 seed = "/repos"
+# The stream is open to whoever can reach it, and any API token is accepted
+# (not just Zuul's).  Fine for a demo only because compose publishes the
+# ports on 127.0.0.1; never in production (docs/security.md).
+insecure = true
 
-# Tokens for API writes, as user = token.  Zuul's api_token in zuul.conf.
-[api_tokens]
-zuul = "zuul-api-token"
+# Secrets are not in this file; compose passes them as environment
+# variables from .env: GIT_STREAM_API_TOKENS (Zuul's api_token in zuul.conf,
+# as "zuul=<token>") and GIT_STREAM_WEBHOOK_TOKEN (Zuul's webhook_token).
 
 [webhooks]
 urls = ["http://web:9000/api/connection/gitlab/payload"]
-# Zuul's webhook_token in zuul.conf.
-token = "demo-webhook-token"
 
 # Re-run failing jobs until they failed 3 times, then escalate.
 [retry]

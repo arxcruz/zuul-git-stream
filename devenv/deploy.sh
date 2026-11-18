@@ -6,11 +6,13 @@
 #
 # The first run fetches Zuul's source and builds its images (about 25
 # minutes); later runs start in under a minute.  ./clean.sh removes it all.
+# The first run also creates .env with random secrets (see .env.example).
 set -eu
 source "$(dirname "$0")/common.sh"
 
 ensure_podman
 ensure_zuul_images
+prepare_secrets
 # Read by every job (zuul.conf [executor] variables); post-logs uses it to
 # build log links that work from other computers.
 printf 'demo_host: %s\n' "$DEMO_HOST" > etc_zuul/site-variables.yaml
@@ -29,7 +31,7 @@ say "${B}git-stream${R}  $FORGE      the fake GitLab: projects, merge requests, 
 say "${B}Zuul${R}        $ZUUL/status"
 say "${B}Job logs${R}    $LOGS"
 say "${B}Events${R}      POST $FORGE/api/stream"
-if [ "$DEMO_HOST" != localhost ]; then
+if [ "${DEMO_BIND:-127.0.0.1}" != 127.0.0.1 ] && [ "$DEMO_HOST" != localhost ]; then
     printf '\n'
     say "From other computers on the network:"
     say "  Demo UI     http://$DEMO_HOST:8080"

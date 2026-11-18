@@ -18,9 +18,10 @@ ZUUL=http://localhost:9000/t/example-tenant
 ZUUL_API=http://localhost:9000/api/tenant/example-tenant
 LOGS=http://localhost:8000
 
-# The address other computers on the network use to reach the demo.
-# Set DEMO_HOST to override (e.g. a hostname); defaults to the IP of the
-# interface with the default route.
+# The address other computers on the network use to reach the demo, if
+# DEMO_BIND in .env lets them (it doesn't by default).  Set DEMO_HOST to
+# override (e.g. a hostname); defaults to the IP of the interface with the
+# default route.
 lan_ip() {
     if [ "$(uname)" = Darwin ]; then
         local iface
@@ -92,6 +93,33 @@ ensure_zuul_images() {
     say "Building the Zuul images (first run only, about 25 minutes)..."
     podman build --target zuul-executor -t localhost/zuul-executor:dev "$ZUUL_SRC"
     podman build --target zuul -t localhost/zuul:dev "$ZUUL_SRC"
+}
+
+# Create .env from .env.example on the first run, with a random value for
+# every empty one (an existing .env is kept as it is), then write
+# etc_zuul/zuul.conf from zuul.conf.in with the values from .env.  Neither
+# file is committed.  (zuul.conf stays world-readable: the container's user
+# is not the host's.)
+prepare_secrets() {
+    command -v openssl >/dev/null || die "openssl is needed to generate .env"
+    if [ ! -f .env ]; then
+        local line
+        while IFS= read -r line; do
+            case $line in
+                [A-Z]*=) line="$line$(openssl rand -hex 16)" ;;
+            esac
+            printf '%s\n' "$line"
+        done < .env.example > .env
+        chmod 600 .env
+        say "Created devenv/.env with generated secrets (not committed)"
+    fi
+    set -a; source .env; set +a
+    local name sed_args=()
+    for name in ZUUL_KEYSTORE_PASSWORD MYSQL_PASSWORD ZUUL_API_TOKEN WEBHOOK_TOKEN; do
+        [ -n "${!name:-}" ] || die "$name is empty in .env; set it, or delete .env to generate it again"
+        sed_args+=(-e "s|@$name@|${!name}|g")
+    done
+    sed "${sed_args[@]}" etc_zuul/zuul.conf.in > etc_zuul/zuul.conf
 }
 
 wait_ready() {

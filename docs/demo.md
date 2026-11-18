@@ -16,8 +16,18 @@ Zuul images are built from Zuul's own Dockerfile at the commit pinned in
 executor's bubblewrap can't run under emulation.  Set `ZUUL_IMAGE` /
 `ZUUL_EXECUTOR_IMAGE` to use other images.
 
-Ports: 8080 demo UI, 8090 git-stream, 9000 Zuul web, 8000 logs.
-`DEMO_HOST` controls the address printed for other computers.
+Ports: 8080 demo UI, 8090 git-stream, 9000 Zuul web, 8000 logs, all
+published on 127.0.0.1 only: git-stream runs with `insecure = true` (an open
+stream), so the demo must not be reachable from the network.  `DEMO_BIND`
+in `.env` changes that; `DEMO_HOST` then controls the address printed for
+other computers.
+
+Secrets: `deploy.sh` creates `.env` from `.env.example` with random values
+and renders `etc_zuul/zuul.conf` from `etc_zuul/zuul.conf.in` (neither is
+committed).  `clean.sh` removes both with the volumes.  After pulling a
+version that moved the secrets out of the repo, run
+`./clean.sh -y --keep-images` once: the old database and keystore keep the
+old passwords.
 
 ## Scripts
 
@@ -35,8 +45,8 @@ Ports: 8080 demo UI, 8090 git-stream, 9000 Zuul web, 8000 logs.
 
 ## Zuul configuration
 
-- `etc_zuul/zuul.conf`: `[connection gitlab]` → git-stream, tokens
-  matching `git-stream.toml`.  Jobs run on the executor (no nodes),
+- `etc_zuul/zuul.conf.in` (rendered to `zuul.conf` by `deploy.sh`): `[connection gitlab]` → git-stream, tokens
+  from `.env`, matching git-stream's environment (`compose.yaml`).  Jobs run on the executor (no nodes),
   allowed because they're in the trusted `zuul-config` project.
 - `etc_zuul/main.yaml`: tenant `example-tenant`; config project
   `zuul-config`, untrusted `bundles`, `ci-tool`, all on the gitlab

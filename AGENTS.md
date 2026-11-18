@@ -145,7 +145,8 @@ scripts/check.sh          the "run before saying done" gate (lint + all tests)
 devenv/                   podman demo (Zuul + git-stream + demo UI)
   deploy.sh stop.sh clean.sh demo.sh check.sh common.sh
   compose.yaml Containerfile git-stream.toml
-  etc_zuul/               zuul.conf (GitLab connection to git-stream), tenant
+  .env.example            secrets for the demo; deploy.sh makes the ignored .env
+  etc_zuul/               zuul.conf.in (rendered to zuul.conf), tenant
   repos/                  seed projects: zuul-config, bundles, ci-tool
   demo-ui/                demo web page (stdlib Python + one HTML file)
 docs/                     the documentation listed above
@@ -225,6 +226,9 @@ cd devenv && ./deploy.sh          # then http://localhost:8080
 ```
 
 Exercise it end to end without a browser (see docs/demo.md for more):
+
+The demo runs with `insecure = true` and its ports on `127.0.0.1`, so these
+need no token:
 
 ```sh
 curl -s -X POST localhost:8080/api/bundle -d '{"action":"new","flaky":0.3}'

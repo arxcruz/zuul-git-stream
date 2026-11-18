@@ -28,6 +28,7 @@ fi
 
 printf '%sThis deletes:%s\n' "$B" "$R"
 say "• the $PROJECT containers, their volumes (git-stream repos, job logs, database) and network"
+say "• .env and etc_zuul/zuul.conf (the generated secrets; deploy.sh makes new ones)"
 if [ $keep_images = 0 ]; then
     say "• the demo images (about 8 GB):"
     for image in $BUILT_IMAGES $PULLED_IMAGES; do
@@ -48,6 +49,9 @@ containers=$(podman ps -aq --filter "label=io.podman.compose.project=$PROJECT")
 [ -z "$containers" ] || podman rm -fv --depend $containers >/dev/null
 compose down -v >/dev/null || true
 ok "Containers, volumes and network removed"
+# The secrets belong to the volumes just removed: the database and Zuul's
+# keystore only accept the ones they were created with.
+rm -f .env etc_zuul/zuul.conf
 
 if [ $keep_images = 0 ]; then
     for image in $BUILT_IMAGES $PULLED_IMAGES; do

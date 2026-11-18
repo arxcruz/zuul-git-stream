@@ -8,11 +8,49 @@ channel that an attacker can reach.
 
 | Secret | Who uses it | Status |
 |--------|-------------|---------|
-| `[api_tokens]` (Zuul → git-stream REST writes) | Zuul `GitlabAPIClient` sends `Authorization: Bearer` | token moves to the environment (step 4) |
-| `[webhooks] token` (git-stream → Zuul) | git-stream sends `X-Gitlab-Token` | token moves to the environment (step 4) |
-| `[stream] tokens` (`POST /api/stream`) | the announcing system | sender token required when configured, and the message acts as the token's user (it cannot claim another); open + warned by default, where `report_users` names are refused as authors |
+| `[api_tokens]` (Zuul → git-stream REST writes) | Zuul `GitlabAPIClient` sends `Authorization: Bearer` | `GIT_STREAM_API_TOKENS`; none configured means writes are refused |
+| `[webhooks] token` (git-stream → Zuul) | git-stream sends `X-Gitlab-Token` | `GIT_STREAM_WEBHOOK_TOKEN` |
+| `[stream] tokens` (`POST /api/stream`) | the announcing system | `GIT_STREAM_STREAM_TOKENS`; none configured means the stream is refused (401); the message acts as the token's user (it cannot claim another) |
 | git clone/fetch | Zuul executor/merger | anonymous by default; a token is a deployment option (below) |
 | `[retry] zuul_api` URL | git-stream reads Zuul's builds API | unauthenticated; gate it at the network (below) |
+
+## Secure by default
+
+With no `[api_tokens]`, REST writes are 401 ("no API tokens are
+configured"); with no `[stream] tokens`, `POST /api/stream` is 401 ("no
+stream tokens are configured").  Startup logs a warning that says which is
+refused and how to allow it.  Reads (GET) stay open.
+
+`[server] insecure = true` (or `GIT_STREAM_INSECURE=true`, `--insecure`) is
+the explicit opt-in for demos and throwaway setups: with no tokens, any API
+token is accepted and acts as `zuul`, and the stream is open and acts as
+`git-stream`.  It never weakens tokens that are configured, and startup
+logs a loud warning.  Never use it where anyone untrusted can reach the
+port.
+
+## The demo's secrets
+
+The demo runs with `insecure = true`, so it is protected by where it
+listens, not by tokens:
+
+- `compose.yaml` publishes every port on `127.0.0.1` (`DEMO_BIND` in
+  `devenv/.env` changes that; do it only on a network you trust).
+- No secret is committed.  `deploy.sh` creates `devenv/.env` (mode 600,
+  git-ignored) from `devenv/.env.example`, with a random value for each of
+  `MYSQL_ROOT_PASSWORD`, `MYSQL_PASSWORD`, `ZUUL_KEYSTORE_PASSWORD`,
+  `ZUUL_API_TOKEN` and `WEBHOOK_TOKEN`; an existing `.env` is kept.
+  Compose passes them to the containers as environment variables, and
+  git-stream reads the API and webhook tokens from
+  `GIT_STREAM_API_TOKENS` / `GIT_STREAM_WEBHOOK_TOKEN`, not from
+  `git-stream.toml`.
+- Zuul's config has no environment substitution, so `deploy.sh` renders the
+  git-ignored `etc_zuul/zuul.conf` from `etc_zuul/zuul.conf.in`.
+- The secrets belong to the volumes: `clean.sh` removes `.env` and
+  `zuul.conf` with them, and changing a secret by hand needs `clean.sh`
+  first (the database and Zuul's keystore keep the old one).
+- To run the demo with a stream token instead of `insecure`, set
+  `GIT_STREAM_STREAM_TOKENS` and make the demo UI send it (not done: the
+  demo UI sends none).
 
 ## The layers
 
@@ -57,25 +95,24 @@ network-exposed git-stream, gate the `.git` paths at the proxy.
 Done (committed):
 
 - **`[stream]` sender tokens** on `POST /api/stream` (code + test). This is
-  the most dangerous open surface: unauthenticated, anyone who can reach
-  git-stream can open MRs and trigger Zuul jobs.
+  the most dangerous surface: anyone who can reach git-stream could open MRs
+  and trigger Zuul jobs.  It is refused unless tokens are configured or
+  `insecure` is set (`tests/test_insecure_defaults.py`).
+- **Demo secrets out of the repo** (see above).
 - **Stream identity** (code + `tests/test_stream_identity.py`): a message
   acts as its token's user, never as the `author` it claims.  On an open
-  stream the `[retry] report_users` names are refused, so nobody can forge
+  (insecure) stream the `[retry] report_users` names are refused, so nobody can forge
   Zuul's `Build failed` and drive the retry and escalation path.
 - **Robust `_body`** (no-Content-Length / closed-connection → empty body,
   not a 500).
 
 Planned / deployment (one step each):
 
-1. **Tokens out of the demo file.** `devenv/git-stream.toml` and
-   `devenv/etc_zuul/zuul.conf` use env placeholders; tokens set via
-   `environment:` in `compose.yaml` (out of the repo).
-2. **TLS + private network.** git-stream behind a TLS reverse proxy; internal
+1. **TLS + private network.** git-stream behind a TLS reverse proxy; internal
    Zuul↔git-stream network; gate `*.git` paths at the proxy.
-3. **Builds-API read.** Gate Zuul's web API at the proxy (or a Zuul-side auth
+2. **Builds-API read.** Gate Zuul's web API at the proxy (or a Zuul-side auth
    in front of it) so git-stream's retry reads aren't open.
-4. **Docs.** a production deploy section in the README pointing here.
+3. **Docs.** a production deploy section in the README pointing here.
 
 ## Not done (later, from the roadmap)
 
