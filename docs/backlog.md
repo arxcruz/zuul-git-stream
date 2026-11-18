@@ -23,16 +23,10 @@ lines that pass).  The receive-pack cases are marked inline instead (see the
 last group).
 
 Not yet checked against any implementation (the other groups each passed
-against a throwaway prototype): the branch-and-tag-names tests, the
-malformed-requests tests, and the git-read-only fix.  Prototype or implement
+against a throwaway prototype): the branch-and-tag-names tests and the
+git-read-only fix.  Prototype or implement
 those first, and treat a failing test there as possibly a test bug.
 
-- **request limits** (`tests/test_server_limits.py`, `test_request_limits` in
-  `test_config.py`): a body over `[server] max_body` (10 MiB) is 413 without
-  being read (stream, REST API, git POST, chunked, huge chunk size); a client
-  silent for `[server] read_timeout` (30 s) gets 408, or is dropped if it
-  never finished the request line or is idle on keep-alive.  Needs
-  `serve(max_body=, read_timeout=)`.
 - **webhook delivery** (`tests/test_webhooks.py`): one ordered queue per URL,
   so a dead URL never delays another (and `stop()` ends every thread); no
   `X-Gitlab-Token` header when the token is empty.  A 4xx stays "kept as
@@ -54,13 +48,6 @@ those first, and treat a failing test there as possibly a test bug.
   need the default branch (push without `branch`, tag without `rev`, open_mr
   without `target_branch`) are 409 "project 'x' has an invalid default
   branch '-x'; recreate it"; everything else keeps working.
-- **config wiring** (`tests/test_wiring.py`): only
-  `test_request_limits_reach_the_server` is left; `build_server` in
-  `git_stream/__main__.py` must pass `[server] max_body` and `read_timeout`
-  to `serve` (with the request-limits work above).
-- **malformed requests** (`tests/test_server_input.py`): bad JSON bodies,
-  non-numeric `page`, `per_page` or merge request id, and bad chunk framing on
-  the REST API are 4xx, not a 500 that leaks the exception text.
 - **branch and tag names** (`test_forge.py`): invalid names for a push's
   `branch`, an MR's `target_branch` and a tag are 400 "invalid branch name" /
   "invalid tag name"; tagging an existing name is 409 "already exists".  A
@@ -99,6 +86,19 @@ those first, and treat a failing test there as possibly a test bug.
 
 From the audit; none of these has a test.  Specify with a test first, as for
 section 1.
+
+- Request limits (done) leave these open: the total deadline covers the body,
+  not the request line and headers, which the standard library reads with
+  only the per-receive `read_timeout` (a client can trickle them); `git
+  http-backend` (`server.py:_git`) runs with no timeout and its whole output
+  is buffered in memory; a 413 closes the connection without draining the
+  rest of the upload, so a client still sending may see a reset instead of
+  the response.
+- `repos.GitError` is never caught, so a git failure (for example a revision
+  the client named that does not exist) is a 500 `internal error`; it should
+  be a 4xx where the cause is the client's (with the branch and tag names
+  group above).  Its text, which includes git's arguments and stderr, no
+  longer reaches the client.
 
 - HTML pages are built with string concatenation and `html.escape`; not every
   call site was reviewed, so one missed `e()` could be stored XSS from a note

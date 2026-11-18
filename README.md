@@ -208,6 +208,9 @@ base_url = "http://git-stream:8090"   # how Zuul reaches git-stream
 data = "/srv/git-stream"              # repositories and state
 seed = "/repos"                       # optional: create projects from these dirs
 insecure = false                      # true: demos only, see docs/security.md
+max_body = 10485760                   # bytes; a larger request body is a 413
+read_timeout = 30                     # seconds of silence before a 408
+body_timeout = 120                    # seconds to receive a whole body
 
 [api_tokens]                          # user = token, for API writes
 zuul = "API_TOKEN"

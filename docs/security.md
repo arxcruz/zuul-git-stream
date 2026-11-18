@@ -28,6 +28,28 @@ token is accepted and acts as `zuul`, and the stream is open and acts as
 logs a loud warning.  Never use it where anyone untrusted can reach the
 port.
 
+## Request limits
+
+Every body read and parse is bounded, so a client cannot fill memory or pin
+a handler thread:
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `[server] max_body` | 10 MiB | a larger body is **413**, refused from the declared length (or, chunked, from the chunk size) before it is read |
+| `[server] read_timeout` | 30 s | a client silent this long while sending is **408** and dropped; also drops idle keep-alive connections and half-sent request lines |
+| `[server] body_timeout` | 120 s | a whole body must arrive within this, however steadily it trickles (**408**) |
+
+The body is read before the forge's lock is taken, so a slow client never
+blocks the other clients.  A refusal closes the connection, because the rest
+of the body is still in the stream.  Malformed input is a 4xx and never
+echoes an exception: a bad `Content-Length` (not a plain number), a bad chunk
+size or chunk framing, a body that is not UTF-8 or valid JSON, a JSON body
+that is not an object, and a `page`, `per_page` or merge request id that is
+not a positive number are all 400.  An unexpected error is a 500 whose body
+says only `internal error`; the details are in the log.  What is not covered
+yet (request-line and header trickling, the `git http-backend` subprocess) is
+in `docs/backlog.md`.
+
 ## The demo's secrets
 
 The demo runs with `insecure = true`, so it is protected by where it
@@ -103,8 +125,8 @@ Done (committed):
   acts as its token's user, never as the `author` it claims.  On an open
   (insecure) stream the `[retry] report_users` names are refused, so nobody can forge
   Zuul's `Build failed` and drive the retry and escalation path.
-- **Robust `_body`** (no-Content-Length / closed-connection → empty body,
-  not a 500).
+- **Bounded bodies** (code + `tests/test_server_limits.py`,
+  `tests/test_server_input.py`): see Request limits above.
 
 Planned / deployment (one step each):
 
