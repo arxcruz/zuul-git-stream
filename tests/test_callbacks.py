@@ -11,8 +11,11 @@ without a callback_url, else a list of
 
 import http.server
 import json
+import os
 import socket
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -280,6 +283,28 @@ def test_a_hanging_callback_delays_neither_zuul_nor_other_mrs(cb, receiver):
     zuul_calls(cb, b['iid'], 'approve', b['sha'])
     assert wait_for(lambda: fast.attempts == 1, timeout=2)
     assert time.time() - started < 3  # b did not wait for a
+
+
+def test_a_callback_ignores_the_proxy_environment(receiver):
+    """It connects to the URL it was given, not through HTTP(S)_PROXY.
+
+    Run in a fresh interpreter: urllib reads the environment when it is
+    imported, so setting it in this process would prove nothing.
+    """
+    proxy, target = receiver(), receiver()
+    proxy_url = proxy.url.split('/hook')[0]
+    env = {k: v for k, v in os.environ.items()
+           if k.lower() not in ('http_proxy', 'https_proxy', 'all_proxy',
+                                'no_proxy')}
+    env.update(http_proxy=proxy_url, HTTP_PROXY=proxy_url,
+               https_proxy=proxy_url, HTTPS_PROXY=proxy_url)
+    code = ('import sys; from git_stream import callbacks; '
+            'print(callbacks.deliver(sys.argv[1], {"outcome": "passed"}))')
+    done = subprocess.run([sys.executable, '-c', code, target.url], env=env,
+                          capture_output=True, text=True, timeout=60)
+    assert done.stdout.strip() == 'delivered', done.stderr
+    assert target.outcomes() == ['passed']
+    assert proxy.attempts == 0
 
 
 # -- once per outcome per head sha ---------------------------------------

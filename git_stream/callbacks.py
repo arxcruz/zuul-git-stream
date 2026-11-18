@@ -25,7 +25,11 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_opener = urllib.request.build_opener(_NoRedirect)
+# ProxyHandler({}) turns the proxy environment variables off: a callback goes
+# straight to the URL it was given, never through a proxy git-stream happens
+# to be configured with for something else.
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+                                      _NoRedirect)
 
 
 def deliver(url, body):

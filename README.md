@@ -196,7 +196,8 @@ over.  Failed attempts and reruns send nothing.
 
 `escalated` is the escalation record above with `event` set to `outcome` and
 `outcome` added.  Delivery is one attempt with a 10 second timeout, in the
-background; a redirect counts as a failure.  The result is on the merge
+background; a redirect counts as a failure, and the proxy environment
+variables (`HTTP_PROXY` and the like) are ignored.  The result is on the merge
 request (`callback` in its JSON and on its page): a list of `{outcome, sha,
 time, status}`, `status` being `delivered` or `failed: <cause>`.  There are
 no retries and no authentication header, and the URL is never shown back.

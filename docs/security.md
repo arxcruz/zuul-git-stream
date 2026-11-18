@@ -74,6 +74,9 @@ where git-stream makes a request to an address a sender picked, so:
   `file:`, no whitespace) pass, checked before anything is created.  One
   attempt, 10 second timeout, redirects refused, the body is fixed JSON, and
   a hung receiver can't delay Zuul or other merge requests.
+- **No proxy**: `HTTP_PROXY`, `HTTPS_PROXY` and friends are ignored, so a
+  callback goes straight to its URL and can't be sent through a proxy that
+  was set up for something else.
 - Zuul never sees the URL.  The `callback` status list is in the merge
   request JSON of the REST API (Zuul ignores it) but not in the webhooks;
   see [zuul-contract.md](zuul-contract.md).  The pages don't show the
