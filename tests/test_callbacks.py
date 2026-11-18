@@ -23,7 +23,7 @@ import urllib.request
 
 import pytest
 
-from conftest import API_TOKEN, Running, rejected, wait_for
+from conftest import API_TOKEN, FAST_POLL, Running, rejected, wait_for
 from git_stream.retry import RetryPolicy
 from test_retry import FakeZuul, report
 
@@ -71,7 +71,7 @@ class Receiver:
         self.url = 'http://127.0.0.1:%d%s' % (
             self.server.server_address[1], SECRET_URL)
         threading.Thread(target=self.server.serve_forever,
-                         daemon=True).start()
+                         kwargs=FAST_POLL, daemon=True).start()
 
     def outcomes(self):
         return [b['outcome'] for b in self.bodies]

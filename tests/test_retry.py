@@ -7,7 +7,7 @@ import urllib.request
 
 import pytest
 
-from conftest import API_TOKEN, wait_for
+from conftest import API_TOKEN, FAST_POLL, wait_for
 from git_stream.retry import RetryPolicy
 
 
@@ -60,7 +60,7 @@ class FakeZuul:
                                                       Handler)
         self.url = 'http://127.0.0.1:%d' % self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever,
-                         daemon=True).start()
+                         kwargs=FAST_POLL, daemon=True).start()
 
     def run(self, **results):
         """Record one buildset: job name -> result (newest first)."""

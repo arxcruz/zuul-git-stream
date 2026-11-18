@@ -13,6 +13,7 @@ import urllib.request
 
 import pytest
 
+from conftest import FAST_POLL
 from git_stream import config
 
 
@@ -149,7 +150,8 @@ def served(settings, make):
         server = build_server(settings(server=server_options),
                               make(server='insecure = true'), sender=None,
                               metrics=None)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=server.serve_forever, kwargs=FAST_POLL,
+                         daemon=True).start()
         started.append(server)
         return 'http://127.0.0.1:%d' % server.server_address[1]
     yield start

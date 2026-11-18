@@ -11,7 +11,7 @@ import threading
 
 import pytest
 
-from conftest import wait_for
+from conftest import FAST_POLL, wait_for
 from git_stream.metrics import Metrics
 from git_stream.webhooks import WebhookSender
 
@@ -40,7 +40,7 @@ class Receiver:
                                                       Handler)
         self.url = 'http://127.0.0.1:%d/hook' % self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever,
-                         daemon=True).start()
+                         kwargs=FAST_POLL, daemon=True).start()
 
     @property
     def ns(self):

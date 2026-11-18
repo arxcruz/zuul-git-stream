@@ -13,6 +13,10 @@ from git_stream.server import serve
 
 API_TOKEN = 'secret-api-token'
 
+# serve_forever() notices shutdown() only between polls, 0.5 seconds apart by
+# default, which made every test pay up to that much to stop its server.
+FAST_POLL = {'poll_interval': 0.01}
+
 
 def wait_for(condition, timeout=8):
     """Poll until condition() is true; False if it never is."""
@@ -49,7 +53,7 @@ class Running:
         self.url = 'http://127.0.0.1:%d' % self.server.server_address[1]
         self.forge.baseurl = self.url
         self.thread = threading.Thread(target=self.server.serve_forever,
-                                       daemon=True)
+                                       kwargs=FAST_POLL, daemon=True)
         self.thread.start()
 
     def send(self, msg, token=None):

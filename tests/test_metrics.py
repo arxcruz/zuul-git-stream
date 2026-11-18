@@ -3,6 +3,7 @@ import threading
 import urllib.error
 import urllib.request
 
+from conftest import FAST_POLL
 from git_stream.metrics import Metrics
 
 
@@ -85,7 +86,7 @@ def test_metrics_endpoint(forge, tmp_path):
     server = serve(forge.forge, None, '127.0.0.1', 0, metrics=metrics)
     url = 'http://127.0.0.1:%d' % server.server_address[1]
     thread = __import__('threading').Thread(target=server.serve_forever,
-                                             daemon=True)
+                                             kwargs=FAST_POLL, daemon=True)
     thread.start()
     try:
         with urllib.request.urlopen(url + '/api/stream/metrics') as r:
@@ -99,7 +100,7 @@ def test_metrics_endpoint(forge, tmp_path):
         bare = serve(forge.forge, None, '127.0.0.1', 0)
         bare_url = 'http://127.0.0.1:%d' % bare.server_address[1]
         bare_thread = __import__('threading').Thread(
-            target=bare.serve_forever, daemon=True)
+            target=bare.serve_forever, kwargs=FAST_POLL, daemon=True)
         bare_thread.start()
         try:
             urllib.request.urlopen(bare_url + '/api/stream/metrics')
