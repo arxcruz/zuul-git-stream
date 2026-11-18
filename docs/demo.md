@@ -114,3 +114,25 @@ podman logs zuul-git-stream-demo_git-stream_1 | grep -E 'rerun|Escalating'
 
 Job logs: `http://localhost:8000/<build uuid>/job-output.txt`
 (`log_url` in Zuul's builds API).
+
+## Where state lives
+
+The `forge` podman volume (`/srv/git-stream`) holds everything git-stream
+persists across restarts:
+
+- `state.db` — the forge's own state (projects, merge requests, notes,
+  approvals, the dedup list, per-MR retry state).  In-memory while running;
+  this is the durability mirror, written on every change.
+- `metrics.db` — the activity log (one row per completed build, escalation,
+  and webhook delivery).  See the `/metrics` page or `GET
+  /api/stream/metrics`.
+- `repos/` — the bare git repositories.
+
+Inspect it without stopping the demo:
+
+```sh
+podman exec zuul-git-stream-demo_git-stream_1 sh -c 'ls -la /srv/git-stream/*.db'
+```
+
+`clean.sh` deletes this volume, which is how you reset the demo to a
+pristine forge.

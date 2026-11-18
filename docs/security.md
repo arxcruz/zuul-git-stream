@@ -74,7 +74,11 @@ Planned / deployment (one step each):
 
 ## Not done (later, from the roadmap)
 
-- Durable webhook/retry queues and SQLite — needed for the network to be
-  *resilient* too, not just private.
+- **Durable webhook and retry queues.**  The forge *state* is already in
+  SQLite (`state.db`) and the metrics log is in `metrics.db`, but the
+  *delivery* of webhooks (to Zuul) and the retry policy run in-process on a
+  single worker each, and a failed send is retried in memory only.  A
+  durable queue (SQLite-backed) is what the roadmap means by this — it is
+  about *resilience* of the network, not just privacy.
 - A read-only token that can fetch git but never write the API, if you want to
   split "who can clone" from "who can drive the API."

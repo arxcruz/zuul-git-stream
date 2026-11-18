@@ -6,7 +6,7 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   [server]
   listen = "0.0.0.0:8090"
   base_url = "http://git-stream:8090"   # how Zuul reaches git-stream
-  data = "/srv/git-stream"              # repositories and state
+  data = "/srv/git-stream"              # repos/ + state.db (forge) + metrics.db
   seed = "/repos"                       # create projects from these dirs
 
   [api_tokens]                          # user = token; tokens for writes

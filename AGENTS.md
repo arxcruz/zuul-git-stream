@@ -85,7 +85,7 @@ tests import it.
 ```sh
 uv venv -p 3.12 .venv
 uv pip install -p .venv/bin/python -e '.[test]' ../zuul
-.venv/bin/python -m pytest -q tests        # 28 tests, ~15 s
+.venv/bin/python -m pytest -q tests        # 35 tests, ~20 s
 ```
 
 `tests/test_zuul_contract.py` is skipped if Zuul isn't importable; make
@@ -151,6 +151,15 @@ Quote URLs containing `?` in zsh, or the shell globs them.
 
 Working and verified live in the demo: announce → test → results as MR
 comments and approval → automatic retries → escalation shown on pages →
-test with an unmerged fix via `Depends-On` → approval.  Not done: see
-[docs/roadmap.md](docs/roadmap.md) (production hardening, Jira adapter,
-notifying the announcing system).
+test with an unmerged fix via `Depends-On` → approval.  The forge keeps
+its state in `<data>/state.db` and logs job activity in
+`<data>/metrics.db` (both SQLite, both survive a restart; the in-memory
+view is authoritative while running).  Not done: see
+[docs/roadmap.md](docs/roadmap.md) (durable webhook/retry queues, Jira
+adapter, notifying the announcing system).
+
+Known gap: the seeder is not fault-tolerant when starting against a
+pre-existing `state.json` and git repos (an empty `state.db` makes it try
+to re-create projects whose repos already exist, so `update-ref`
+crash-loops).  Reset the forge volume (`clean.sh`) or make the seeder
+skip existing repos before upgrading an instance this way.

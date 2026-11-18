@@ -8,6 +8,10 @@ line wins over the environment, which wins over the file.
 
 With a Zuul API URL, failed jobs are re-run until they failed
 max_attempts times, then the merge request is escalated (see retry.py).
+
+The forge keeps its state in <data>/state.db and, when [metrics] is
+configured, logs job activity in <data>/metrics.db (both SQLite, both
+survive a restart).  See config.py for the [server] and [metrics] options.
 """
 
 import argparse
