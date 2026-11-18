@@ -13,8 +13,13 @@ source "$(dirname "$0")/common.sh"
 ensure_podman
 ensure_zuul_images
 prepare_secrets
+# Ports are on 127.0.0.1 unless DEMO_BIND says otherwise, and then only
+# localhost links work.
+[ "${DEMO_BIND:-127.0.0.1}" != 127.0.0.1 ] || DEMO_HOST=localhost
 # Read by every job (zuul.conf [executor] variables); post-logs uses it to
-# build log links that work from other computers.
+# build log links that work from other computers.  The executor reads it
+# when it starts, so it is restarted below if this changes it.
+old_vars=$(cat etc_zuul/site-variables.yaml 2>/dev/null || true)
 printf 'demo_host: %s\n' "$DEMO_HOST" > etc_zuul/site-variables.yaml
 say "Building git-stream..."
 podman build -q -t localhost/zuul-git-stream:latest -f Containerfile .. >/dev/null
@@ -23,6 +28,8 @@ compose up -d >/dev/null
 # "compose up" keeps running containers on their old image; restart the
 # two that use the image just built (it's quick).
 compose up -d --force-recreate --no-deps git-stream demo-ui >/dev/null
+[ "$old_vars" = "$(cat etc_zuul/site-variables.yaml)" ] ||
+    podman restart "$(container executor)" >/dev/null
 wait_ready
 
 printf '\n'
