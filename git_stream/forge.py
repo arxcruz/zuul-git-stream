@@ -21,7 +21,7 @@ import sqlite3
 import threading
 import zlib
 
-from git_stream.repos import Repo, ZERO_SHA, valid_branch
+from git_stream.repos import Repo, ZERO_SHA, valid_branch, valid_tag
 
 log = logging.getLogger('git_stream.forge')
 
@@ -558,6 +558,9 @@ class Forge:
                     before or ZERO_SHA, 'after': sha}
 
     def tag(self, project, tag, rev=None, by='git-stream'):
+        if not valid_tag(tag):
+            raise ForgeError('invalid tag name %r; use a plain name such as '
+                             '"v1.0"' % (tag,))
         with self.lock:
             p = self.project(project)
             repo = self.repo(p)
@@ -565,6 +568,8 @@ class Forge:
             if sha is None:
                 raise ForgeError('unknown revision %s' % rev, 404)
             ref = 'refs/tags/' + tag
+            if repo.resolve(ref) is not None:
+                raise ForgeError('tag %r already exists' % (tag,), 409)
             repo.update_ref(ref, sha, ZERO_SHA)
             self._emit_push(p, ref, ZERO_SHA, sha, by)
             return {'project': p['name'], 'ref': ref, 'after': sha}
