@@ -136,7 +136,10 @@ def run(command, cwd, timeout):
 
 
 def tail(text):
-    text = text.strip()
+    # pytest's -ra (pyproject.toml) lists every xfail after the real failure,
+    # which would push it out of the tail.
+    text = '\n'.join(line for line in text.splitlines()
+                     if not line.startswith('XFAIL ')).strip()
     if len(text) <= LIMIT:
         return text
     return '... (output truncated, showing the last %d characters)\n%s' % (

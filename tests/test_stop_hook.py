@@ -33,6 +33,9 @@ fi
 if [ -n "${STUB_PYTEST_FAIL:-}" ]; then
   seq 1 "${STUB_PYTEST_LINES:-1}"
   echo "$STUB_PYTEST_FAIL"
+  for i in $(seq 1 "${STUB_XFAILS:-0}"); do
+    [ "$i" -gt 0 ] && echo "XFAIL tests/test_x.py::test_$i - known gap"
+  done
   exit 1
 fi
 echo "1 passed"
@@ -200,6 +203,16 @@ def test_long_output_is_cut_to_its_tail(repo, run_hook):
     assert len(result.reason) < 5000
     assert result.reason.endswith('THE SUMMARY')
     assert 'truncated' in result.reason
+
+
+def test_expected_failures_do_not_push_the_real_one_out(repo, run_hook):
+    """pytest's -ra lists every xfail after the failure; they are noise."""
+    edit(repo)
+    result = run_hook(repo, STUB_PYTEST_FAIL='THE REAL FAILURE',
+                      STUB_XFAILS='300')
+    assert result.blocked
+    assert 'THE REAL FAILURE' in result.reason
+    assert 'XFAIL' not in result.reason
 
 
 def test_a_passed_tree_is_not_checked_again(repo, run_hook):
