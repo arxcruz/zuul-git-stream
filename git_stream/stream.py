@@ -28,7 +28,8 @@ comes from the sender's token, not from the message:
   may be any name except the users the retry policy trusts as Zuul's own
   (`[retry] report_users`), which is a 403.
 
-In "files", a null value deletes the file.
+In "files", a null value deletes the file.  Branch and tag names must be ones
+git accepts (400 otherwise); tagging an existing name is a 409.
 """
 
 from git_stream.forge import ForgeError

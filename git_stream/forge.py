@@ -21,7 +21,7 @@ import sqlite3
 import threading
 import zlib
 
-from git_stream.repos import Repo, ZERO_SHA, valid_branch
+from git_stream.repos import Repo, ZERO_SHA, valid_branch, valid_tag
 
 log = logging.getLogger('git_stream.forge')
 
@@ -201,6 +201,12 @@ class JsonStore:
 
     def close(self):
         pass
+
+
+def _check_branch(branch):
+    if not valid_branch(branch):
+        raise ForgeError('invalid branch name %r; use a plain name such '
+                         'as "master" or "release/1.0"' % (branch,))
 
 
 def _loads(value):
@@ -507,9 +513,7 @@ class Forge:
         name = name.strip('/')
         if not name or name.endswith('.git') or '..' in name:
             raise ForgeError('invalid project name %r' % name)
-        if not valid_branch(branch):
-            raise ForgeError('invalid branch name %r; use a plain name such '
-                             'as "master" or "release/1.0"' % (branch,))
+        _check_branch(branch)
         with self.lock:
             if name in self.state['projects']:
                 return self.state['projects'][name]
@@ -529,7 +533,13 @@ class Forge:
             return p
 
     def push(self, project, files, message, by, branch=None, start=None):
-        """Commit files to a branch (created from start if missing)."""
+        """Commit files to a branch (created from start if missing).
+
+        start is a revision (a sha, a tag, a branch), not a branch name, so
+        it is not checked as one.
+        """
+        if branch:
+            _check_branch(branch)
         with self.lock:
             p = self.project(project)
             branch = branch or p['default_branch']
@@ -548,6 +558,9 @@ class Forge:
                     before or ZERO_SHA, 'after': sha}
 
     def tag(self, project, tag, rev=None, by='git-stream'):
+        if not valid_tag(tag):
+            raise ForgeError('invalid tag name %r; use a plain name such as '
+                             '"v1.0"' % (tag,))
         with self.lock:
             p = self.project(project)
             repo = self.repo(p)
@@ -555,6 +568,8 @@ class Forge:
             if sha is None:
                 raise ForgeError('unknown revision %s' % rev, 404)
             ref = 'refs/tags/' + tag
+            if repo.resolve(ref) is not None:
+                raise ForgeError('tag %r already exists' % (tag,), 409)
             repo.update_ref(ref, sha, ZERO_SHA)
             self._emit_push(p, ref, ZERO_SHA, sha, by)
             return {'project': p['name'], 'ref': ref, 'after': sha}
@@ -562,6 +577,8 @@ class Forge:
     def open_mr(self, project, title, files, by, description='',
                 target_branch=None, message=None, key=None, labels=(),
                 max_attempts=None):
+        if target_branch:
+            _check_branch(target_branch)
         with self.lock:
             p = self.project(project)
             if key is not None and str(key) in p['keys']:

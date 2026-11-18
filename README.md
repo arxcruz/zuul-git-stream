@@ -118,6 +118,10 @@ An event is a JSON object with an `action`.  Send it to `POST
   addressed by it later (`"mr": "b-0042"`).  Opening a merge request with a key that is still
   open updates it instead.
 - An event `id` makes a resent event a no-op.
+- Branch names (`push` `branch`, `open_mr` `target_branch`, `create_project`
+  `branch`) and `tag` names must be names git accepts: a bad one is a 400
+  ("invalid branch name" / "invalid tag name"), and tagging a name that
+  exists is a 409.  `push`'s `start` is a revision, not a branch name.
 - The stream is secure by default: with no `[stream] tokens` it answers 401
   ("no stream tokens are configured"), and with no `[api_tokens]` the REST
   API refuses writes.  `[server] insecure = true` (demos only) accepts any

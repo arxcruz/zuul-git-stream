@@ -36,6 +36,24 @@ def valid_branch(name):
             proc.stdout.decode('utf8', 'replace').rstrip('\n') == name)
 
 
+def valid_tag(name):
+    """True if name is a tag name git accepts.
+
+    Asks git (check-ref-format) about the whole ref, so the name is never an
+    argument; the "refs/tags/" prefix would hide a leading "-", so that and
+    "@" are refused here.
+    """
+    if not isinstance(name, str) or name in ('', '@') or name[0] == '-':
+        return False
+    try:
+        proc = subprocess.run(
+            ['git', 'check-ref-format', 'refs/tags/' + name],
+            capture_output=True)
+    except ValueError:  # embedded NUL
+        return False
+    return proc.returncode == 0
+
+
 class Repo:
     def __init__(self, path):
         self.path = path

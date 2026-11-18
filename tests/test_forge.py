@@ -248,6 +248,19 @@ def test_valid_branch_ignores_the_current_repo(tmp_path, monkeypatch):
     assert not valid_branch('@{-1}')
 
 
+@pytest.mark.parametrize('name', ['@', '', '-x', '--bare'])
+def test_valid_tag_refuses_what_the_ref_prefix_would_hide(name):
+    """The "refs/tags/" prefix makes "-x" a legal ref; it is not a tag name."""
+    from git_stream.repos import valid_tag
+    assert not valid_tag(name)
+
+
+@pytest.mark.parametrize('name', ['v1.0', 'release/1.0'])
+def test_valid_tag_accepts_ordinary_names(name):
+    from git_stream.repos import valid_tag
+    assert valid_tag(name)
+
+
 def test_seed_goes_through_create_projects_validation(tmp_path):
     """seed() has no branch input; it must not bypass create_project."""
     from git_stream.__main__ import seed
