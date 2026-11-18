@@ -15,7 +15,7 @@
  │                                                              │      ▼
  │ server.py: GitLab API v4 ◀── REST (MRs, notes, approve) ─────┼── zuul-scheduler
  │            git smart HTTP ◀── git clone/fetch ───────────────┼── zuul-merger/executor
- │            HTML pages, /api/stream, /api/stream/escalations  │
+ │            HTML pages, /api/stream, /api/stream/escalations, metrics  │
  └──────────────────────────────────────────────────────────────┘
                   retry.py ──▶ Zuul builds API (how often did each job fail?)
                   retry.py ──▶ [retry] escalate URLs (optional)
@@ -30,13 +30,18 @@ To Zuul, git-stream is a GitLab server: configured with a normal
 ### `forge.py`: state and the GitLab model
 - One `Forge` object owns all state, guarded by a re-entrant lock
   (`forge.lock`).  The HTTP server holds it for every API/page request.
-- State is a JSON file (`<data>/state.json`), rewritten atomically on
+- State lives in a database in the data directory (SQLite
+  `<data>/state.db`, or a JSON `<data>/state.json` fallback when the
+  `sqlite3` module is unavailable).  The in-memory view is authoritative
+  while the process runs; the database is a persistence mirror written on
   every change.  Repositories are bare repos in `<data>/repos/<name>.git`.
-- State layout:
+- State layout (the in-memory view the stores share):
   ```
   projects: {name: {id, name, default_branch, description, created_at,
                     next_iid, keys: {key: iid},
                     mrs: {iid: MR}}}
+  mrs: {(project_id, iid): MR}    # global MR index the store iterates
+  keys: {(project_id, key): iid}
   next_project_id, next_mr_id, next_note_id
   seen: [message ids]            # last 1000, for de-duplication
   MR = {id, iid, title, description, state (opened|closed|merged),
@@ -78,8 +83,8 @@ Routes:
   by `[api_tokens]`.  With no tokens configured, any token acts as `zuul`.
 - `/<project>.git/...`: `git http-backend` as CGI, upload-pack only;
   receive-pack returns 403 (changes come through the stream).
-- `/api/stream` (POST), `/api/stream/deliveries`, `/api/stream/escalations`.
-- HTML: `/`, `/escalations`, `/<project>`, `/<project>/merge_requests/<iid>`.
+- `/api/stream` (POST), `/api/stream/deliveries`, `/api/stream/escalations`, `/api/stream/metrics` (when metrics is on).
+- HTML: `/`, `/escalations`, `/metrics`, `/<project>`, `/<project>/merge_requests/<iid>`.
 - `/health`.
 
 ### `webhooks.py`: delivery
@@ -95,15 +100,25 @@ note from one of `report_users` matching `failed_pattern`, it queues
 1. waits `settle` seconds, skips the MR if closed or if its sha moved;
 2. reads Zuul's `/builds?project=&change=&patchset=<sha>&complete=true`
    and computes per job: latest result and number of failures;
+   with metrics enabled it also logs the completed builds;
 3. failing jobs with failures < `max_attempts` → comments
    `rerun failed` (all failing retryable) or `rerun <jobs>` (some);
-4. otherwise escalates once per sha: stores `mr['escalation']`, comments
+4. otherwise escalates once per sha: stores `mr['escalation']` (and, when metrics is on, a metrics row), comments
    a summary, adds label `escalated`, POSTs the event to `escalate` URLs.
 The policy's own comments come from `author` (not a report user), so it
 never reacts to itself.  The rerun comment is interpreted by the
 **Zuul job config**, not by git-stream: a pipeline triggered by
 `rerun` comments, whose first job (`bundle-dispatch` in the demo) reads
 the comment back from git-stream's API and sets `zuul.child_jobs`.
+
+### `metrics.py`: what the jobs did, in a database
+An optional SQLite file (`[metrics] path`) records, as events happen,
+one row per completed build (`run`), per escalation, and per webhook
+delivery.  The retry policy writes `run` and `escalation` rows; the
+webhook sender writes `delivery` rows.  Read-mostly: `GET
+`/api/stream/metrics` and the `/metrics` page aggregate the `run` table.
+It is a log of what git-stream saw, not a source of truth; it is additive
+and does not replace the forge state in `state.db`.
 
 ### `config.py`: settings
 `SCHEMA` maps section → option → (default, type, env var).  `load()`

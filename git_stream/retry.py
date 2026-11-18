@@ -40,7 +40,7 @@ ESCALATED_LABEL = 'escalated'
 class RetryPolicy(threading.Thread):
     def __init__(self, forge, zuul_api, max_attempts=3, escalate_urls=(),
                  report_users=('zuul',), failed_re=r'^\s*Build failed',
-                 author='git-stream', settle=2):
+                 author='git-stream', settle=2, metrics=None):
         super().__init__(daemon=True, name='retry')
         self.forge = forge
         self.zuul_api = zuul_api.rstrip('/')
@@ -49,6 +49,9 @@ class RetryPolicy(threading.Thread):
         self.report_users = set(report_users)
         self.failed_re = re.compile(failed_re)
         self.author = author
+        # Optional Metrics store: logs what we learn so it survives and can
+        # be queried (see metrics.py).
+        self.metrics = metrics
         # Seconds to wait before reading results, so Zuul's database has
         # every build of the buildset it just reported.
         self.settle = settle
@@ -107,6 +110,9 @@ class RetryPolicy(threading.Thread):
         with urllib.request.urlopen('%s/builds?%s' % (self.zuul_api, query),
                                     timeout=10) as r:
             builds = json.load(r)
+        if self.metrics is not None:
+            self.metrics.record_results(project, iid, sha, builds,
+                                        self.zuul_api)
         results = {}
         for build in builds:  # newest first
             if build['result'] in NOT_A_VERDICT:
@@ -138,6 +144,8 @@ class RetryPolicy(threading.Thread):
             mr['escalated_sha'] = sha
             mr['escalation'] = event
             self.forge.save()
+        if self.metrics is not None:
+            self.metrics.record_escalation(event)
         log.warning('Escalating %s!%s: %s', project, iid,
                     ', '.join(j['job'] for j in jobs))
         lines = ['Escalated: still failing after %d attempts.' % max_attempts,

@@ -1,8 +1,15 @@
 """The fake forge: projects, merge requests, notes and approvals.
 
-All state lives in one JSON file next to the bare repositories.  Every
-change made through the stream (actions sent by other systems) or the
-GitLab API (calls made by Zuul) emits the webhook GitLab would send.
+State lives in a database in the data directory (SQLite by default, or a
+JSON file when the sqlite3 module is unavailable): projects, merge
+requests, notes, approvals, the deduplication list and the per-MR retry
+state.  Every change made through the stream (actions sent by other
+systems) or the GitLab API (calls made by Zuul) emits the webhook GitLab
+would send.
+
+The database is read in memory at start-up; the in-memory view is
+authoritative while the process runs and is persisted on every change.
+That keeps the hot path lock-free on the database and survives restarts.
 """
 
 import copy
@@ -10,6 +17,7 @@ import datetime
 import json
 import logging
 import os
+import sqlite3
 import threading
 import zlib
 
@@ -19,6 +27,15 @@ log = logging.getLogger('git_stream.forge')
 
 # How many processed message ids to remember for de-duplication.
 SEEN_IDS = 1000
+
+# The in-memory shape a store must present.  A project is a plain dict
+# (name, id, default_branch, description, created_at, next_iid, keys, mrs);
+# a merge request is a plain dict; a note is a plain dict.
+MR_COLUMNS = ('id', 'iid', 'project_id', 'title', 'description', 'state',
+              'target_branch', 'source_branch', 'sha', 'start_sha',
+              'author', 'labels', 'approved_by', 'created_at', 'updated_at',
+              'merged_at', 'closed_at', 'merge_commit_sha', 'key',
+              'max_attempts', 'escalated_sha', 'escalation')
 
 
 class ForgeError(Exception):
@@ -38,6 +55,183 @@ def user(username):
             'name': username, 'state': 'active'}
 
 
+# -- stores ------------------------------------------------------------------
+
+class SqliteStore:
+    """Forge state in a SQLite database.
+
+    The in-memory view (built in load) is authoritative while the process
+    runs; the database is a persistence mirror written on save().  One
+    writer (the forge, under its lock) and single-process readers make
+    locking and WAL unnecessary.
+    """
+
+    SCHEMA = '''
+    CREATE TABLE IF NOT EXISTS project (
+      id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL,
+      default_branch TEXT, description TEXT, created_at TEXT,
+      next_iid INTEGER);
+    CREATE TABLE IF NOT EXISTS mr (
+      id INTEGER PRIMARY KEY, iid INTEGER, project_id INTEGER,
+      title TEXT, description TEXT, state TEXT,
+      target_branch TEXT, source_branch TEXT, sha TEXT, start_sha TEXT,
+      author TEXT, labels TEXT, approved_by TEXT,
+      created_at TEXT, updated_at TEXT, merged_at TEXT, closed_at TEXT,
+      merge_commit_sha TEXT, key TEXT, max_attempts INTEGER,
+      escalated_sha TEXT, escalation TEXT);
+    CREATE TABLE IF NOT EXISTS note (
+      id INTEGER PRIMARY KEY, mr_id INTEGER, body TEXT, author TEXT,
+      created_at TEXT);
+    CREATE TABLE IF NOT EXISTS seen (id INTEGER PRIMARY KEY, message_id TEXT);
+    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER);
+    '''
+
+    def __init__(self, path):
+        self.path = path
+        self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.executescript(self.SCHEMA)
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+    def load(self):
+        """Build the in-memory view: {projects, keys, mrs, seen, counters}."""
+        state = {'projects': {}, 'keys': {}, 'mrs': {}, 'seen': [],
+                 'next_project_id': 1, 'next_mr_id': 1, 'next_note_id': 1}
+        for r in self.conn.execute('SELECT * FROM project'):
+            state['projects'][r['name']] = {
+                'id': r['id'], 'name': r['name'],
+                'default_branch': r['default_branch'],
+                'description': r['description'], 'created_at': r['created_at'],
+                'next_iid': r['next_iid'], 'mrs': {}, 'keys': {}}
+        for r in self.conn.execute('SELECT * FROM mr ORDER BY iid'):
+            mr = dict(r)
+            mr['labels'] = _loads(mr['labels'])
+            mr['approved_by'] = _loads(mr['approved_by'])
+            mr['notes'] = []
+            mr['escalation'] = _loads(mr['escalation'])
+            state['mrs'][mr['project_id'], mr['iid']] = mr
+            if mr['key']:
+                state['keys'][mr['project_id'], str(mr['key'])] = mr['iid']
+        # Index MRs and keys into the per-project dicts (keyed by name).
+        for (pid, iid), mr in state['mrs'].items():
+            for p in state['projects'].values():
+                if p['id'] == pid:
+                    p['mrs'][str(iid)] = mr
+                    if mr['key']:
+                        p['keys'][str(mr['key'])] = iid
+                    break
+        by_id = {mr['id']: mr for mr in state['mrs'].values()}
+        for r in self.conn.execute('SELECT id, mr_id, body, author,'
+                                   ' created_at FROM note ORDER BY id'):
+            mr = by_id.get(r['mr_id'])
+            if mr is None:
+                continue
+            mr['notes'].append({'id': r['id'], 'body': r['body'],
+                                'author': r['author'],
+                                'created_at': r['created_at']})
+        state['seen'] = [r['message_id'] for r in self.conn.execute(
+            'SELECT message_id FROM seen ORDER BY id')]
+        for key, value in self.conn.execute('SELECT key, value FROM meta'):
+            state[key] = value
+        return state
+
+    def save(self, state):
+        c = self.conn
+        c.execute('BEGIN')
+        c.execute('DELETE FROM project')
+        c.execute('DELETE FROM mr')
+        c.execute('DELETE FROM note')
+        c.execute('DELETE FROM seen')
+        c.execute('DELETE FROM meta')
+        c.executemany(
+            'INSERT INTO project(id, name, default_branch, description,'
+            ' created_at, next_iid) VALUES (?,?,?,?,?,?)',
+            [(p['id'], p['name'], p['default_branch'], p['description'],
+              p['created_at'], p['next_iid']) for p in
+             state['projects'].values()])
+        c.executemany(
+            'INSERT INTO mr VALUES (%s)' % ','.join(['?'] * len(MR_COLUMNS)),
+            [_mr_tuple(mr, pid, iid)
+             for (pid, iid), mr in state['mrs'].items()])
+        for (pid, _), mr in state['mrs'].items():
+            for n in mr['notes']:
+                c.execute('INSERT INTO note VALUES (?,?,?,?,?)',
+                          (n['id'], mr['id'], n['body'], n['author'],
+                           n['created_at']))
+        c.executemany('INSERT INTO seen(message_id) VALUES (?)',
+                      [(x,) for x in state['seen']])
+        for key in ('next_project_id', 'next_mr_id', 'next_note_id'):
+            c.execute('INSERT INTO meta VALUES (?,?)', (key, state[key]))
+        c.commit()
+
+
+class JsonStore:
+    """Forge state in a JSON file (the previous behavior)."""
+
+    def __init__(self, path):
+        self.path = path
+        self.state = {'projects': {}, 'next_project_id': 1, 'next_mr_id': 1,
+                      'next_note_id': 1, 'seen': []}
+        if os.path.exists(path):
+            with open(path) as f:
+                self.state.update(json.load(f))
+
+    def load(self):
+        import copy
+        return copy.deepcopy(self.state)
+
+    def save(self, state):
+        # The on-disk shape is the legacy one: per-project mrs/keys.  The
+        # in-memory `mrs`/`keys` index uses tuple keys (not JSON-able), so it
+        # is rebuilt from the per-project data instead of written.
+        data = {
+            'projects': state['projects'],
+            'next_project_id': state['next_project_id'],
+            'next_mr_id': state['next_mr_id'],
+            'next_note_id': state['next_note_id'],
+            'seen': state['seen'],
+        }
+        tmp = self.path + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+        os.replace(tmp, self.path)
+
+    def close(self):
+        pass
+
+
+def _loads(value):
+    return json.loads(value) if value else []
+
+
+def _mr_tuple(mr, pid, iid):
+    """The 20-column value tuple for an MR row, in MR_COLUMNS order."""
+    return (mr['id'], iid, pid, mr['title'], mr['description'], mr['state'],
+            mr['target_branch'], mr['source_branch'], mr['sha'],
+            mr['start_sha'], mr['author'],
+            json.dumps(mr.get('labels') or []),
+            json.dumps(mr.get('approved_by') or []),
+            mr['created_at'], mr['updated_at'], mr.get('merged_at'),
+            mr.get('closed_at'), mr.get('merge_commit_sha'), mr.get('key'),
+            mr.get('max_attempts'), mr.get('escalated_sha'),
+            json.dumps(mr['escalation']) if mr.get('escalation') else None)
+
+
+def _load_store(data_dir):
+    """A SQLite store, falling back to JSON if sqlite3 is unavailable."""
+    path = os.path.join(data_dir, 'state.db')
+    try:
+        store = SqliteStore(path)
+        return store
+    except sqlite3.Error:
+        return JsonStore(os.path.join(data_dir, 'state.json'))
+
+
+# -- the forge ----------------------------------------------------------------
+
 class Forge:
     def __init__(self, data_dir, baseurl, emit=None, users=None,
                  stream_tokens=None):
@@ -49,26 +243,39 @@ class Forge:
         """
         self.data_dir = data_dir
         self.repo_root = os.path.join(data_dir, 'repos')
-        self.state_file = os.path.join(data_dir, 'state.json')
         self.baseurl = baseurl.rstrip('/')
         self.emit = emit or (lambda payload: None)
         self.users = users or {}
         self.stream_tokens = stream_tokens or {}
         self.lock = threading.RLock()
         os.makedirs(self.repo_root, exist_ok=True)
-        self.state = {'projects': {}, 'next_project_id': 1, 'next_mr_id': 1,
-                      'next_note_id': 1, 'seen': []}
-        if os.path.exists(self.state_file):
-            with open(self.state_file) as f:
-                self.state.update(json.load(f))
+        self.store = _load_store(data_dir)
+        self.state = self.store.load()
+        self._normalize()
+
+    def _normalize(self):
+        """Rebuild the global MR/key index from the per-project data.
+
+        A legacy JSON file may lack the index entirely; rebuilding it (the
+        per-project dicts are the source of truth here) keeps both stores'
+        in-memory views canonical.  Idempotent.
+        """
+        mrs, keys = {}, {}
+        for p in self.state['projects'].values():
+            for _iid, mr in p['mrs'].items():
+                mrs[p['id'], mr['iid']] = mr
+                if mr.get('key'):
+                    keys[p['id'], str(mr['key'])] = mr['iid']
+        self.state['mrs'] = mrs
+        self.state['keys'] = keys
 
     # -- persistence and lookups ------------------------------------------
 
     def save(self):
-        tmp = self.state_file + '.tmp'
-        with open(tmp, 'w') as f:
-            json.dump(self.state, f, indent=1, sort_keys=True)
-        os.replace(tmp, self.state_file)
+        self.store.save(self.state)
+
+    def close(self):
+        self.store.close()
 
     def user_for_token(self, token):
         if not self.users:
@@ -113,6 +320,18 @@ class Forge:
         if mr is None:
             raise ForgeError('404 Merge Request Not Found', 404)
         return mr
+
+    def _index_mr(self, p, mr):
+        """Keep the in-memory MR index in sync with a project's MR.
+
+        `save()` iterates the global `state['mrs']` index, not the
+        per-project `mrs` dict, so every created or re-keyed merge request
+        must be registered here before it is persisted.
+        """
+        iid = mr['iid']
+        self.state['mrs'][p['id'], iid] = mr
+        if mr.get('key'):
+            self.state['keys'][p['id'], str(mr['key'])] = iid
 
     # -- GitLab representations --------------------------------------------
 
@@ -362,13 +581,17 @@ class Forge:
                 'source_branch': 'mr-%d' % iid, 'sha': sha,
                 'start_sha': start, 'author': by, 'labels': list(labels),
                 'approved_by': [], 'notes': [], 'created_at': ts,
-                'updated_at': ts, 'key': None if key is None else str(key),
-                'max_attempts': max_attempts,
+                'updated_at': ts, 'merged_at': None, 'closed_at': None,
+                'merge_commit_sha': None,
+                'key': None if key is None else str(key),
+                'max_attempts': max_attempts, 'escalated_sha': None,
+                'escalation': None,
             }
             self.state['next_mr_id'] += 1
             p['mrs'][str(iid)] = mr
             if key is not None:
                 p['keys'][str(key)] = iid
+            self._index_mr(p, mr)
             self.save()
             self._emit_mr(p, mr, 'open', by)
             return self.mr_json(p, mr)
@@ -413,6 +636,7 @@ class Forge:
             elif not changes and not oldrev:
                 return self.mr_json(p, mr)
             mr['updated_at'] = now()
+            self._index_mr(p, mr)
             self.save()
             self._emit_mr(p, mr, action, by, changes, oldrev)
             return self.mr_json(p, mr)

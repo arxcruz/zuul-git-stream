@@ -17,6 +17,7 @@ import sys
 
 from git_stream import config
 from git_stream.forge import Forge
+from git_stream.metrics import Metrics
 from git_stream.retry import RetryPolicy
 from git_stream.server import serve
 from git_stream.webhooks import WebhookSender
@@ -91,8 +92,9 @@ def parse_args(argv=None):
 
 def main(argv=None):
     settings = parse_args(argv)
-    server_cfg, hooks, retry = (settings['server'], settings['webhooks'],
-                                settings['retry'])
+    server_cfg, hooks, retry, metrics_cfg = (
+        settings['server'], settings['webhooks'], settings['retry'],
+        settings['metrics'])
     log = logging.getLogger('git_stream')
     logging.basicConfig(
         level=logging.DEBUG if server_cfg['debug'] else logging.INFO,
@@ -109,8 +111,11 @@ def main(argv=None):
         log.warning('POST /api/stream is open; set [stream] tokens to '
                     'require one')
 
+    metrics = None
+    if metrics_cfg['path']:
+        metrics = Metrics(metrics_cfg['path'])
     sender = WebhookSender(hooks['urls'], hooks['token'],
-                           max_backoff=hooks['max_backoff'])
+                           max_backoff=hooks['max_backoff'], metrics=metrics)
     observers = [sender.emit]
     forge = Forge(server_cfg['data'], base_url, users=users,
                   stream_tokens=stream_tokens,
@@ -120,14 +125,14 @@ def main(argv=None):
             forge, retry['zuul_api'], retry['max_attempts'],
             retry['escalate'], retry['report_users'],
             failed_re=retry['failed_pattern'], author=retry['author'],
-            settle=retry['settle'])
+            settle=retry['settle'], metrics=metrics)
         observers.append(policy.observe)
         policy.start()
     if server_cfg['seed']:
         seed(forge, server_cfg['seed'])
     sender.start()
 
-    server = serve(forge, sender, host or '0.0.0.0', int(port))
+    server = serve(forge, sender, host or '0.0.0.0', int(port), metrics=metrics)
     log.info('Serving on %s (base URL %s); webhooks to %s',
              server_cfg['listen'], base_url,
              ', '.join(hooks['urls']) or 'nobody')

@@ -161,3 +161,31 @@ def test_custom_limit_escalates_on_first_failure(forge, zuul, policy):
     report(forge, policy, mr['iid'], 'Build failed.')
     assert notes(forge, mr['iid'])[0].startswith('Escalated')
     assert len(zuul.escalations) == 1
+
+
+def test_metrics_records_runs_and_escalation(forge, zuul, tmp_path):
+    from git_stream.metrics import Metrics
+    metrics = Metrics(str(tmp_path / 'metrics.db'))
+    policy = RetryPolicy(forge.forge, zuul.url, max_attempts=2,
+                         escalate_urls=[zuul.url + '/escalations'],
+                         settle=0, metrics=metrics)
+    try:
+        mr = open_bundle(forge)
+        zuul.run(**{'bundle-security': 'FAILURE', 'bundle-api': 'SUCCESS'})
+        report(forge, policy, mr['iid'], 'Build failed.')
+        # The whole buildset of the version was logged, successes included.
+        s = metrics.summary(project='bundles')
+        by_job = {j['job']: j for j in s['jobs']}
+        assert by_job['bundle-security']['fail'] == 1
+        assert by_job['bundle-security']['runs'] == 1
+        assert by_job['bundle-api']['pass'] == 1
+        # One run per escalation.
+        zuul.run(**{'bundle-security': 'FAILURE'})  # 3rd failure of the version
+        report(forge, policy, mr['iid'], 'Build failed.')
+        s = metrics.summary(project='bundles')
+        # Zuul returns every build of the version, so failures accumulate.
+        assert {j['job']: j for j in s['jobs']}['bundle-security']['fail'] == 3
+        [esc] = metrics.escalations()
+        assert esc['key'] == 'b-1' and esc['max_attempts'] == 2
+    finally:
+        metrics.close()

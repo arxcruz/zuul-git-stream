@@ -163,8 +163,13 @@ pipeline that turns a `rerun ...` comment into the right jobs; see
 - **Webhooks** to every configured URL, in order, retried until accepted,
   with the `X-Gitlab-Token` header.  Recent deliveries are at
   `GET /api/stream/deliveries`.
-- **Web pages** at `/`, `/escalations`, `/<project>` and
+- **Web pages** at `/`, `/escalations`, `/metrics` and
   `/<project>/merge_requests/<iid>`.
+- **Metrics** in a SQLite database (opt-in, `[metrics] path`): one row per
+  completed build, escalation and webhook delivery.  `GET
+  /api/stream/metrics` returns per-job run/pass/fail counts; the `/metrics`
+  page shows them.  It is a log of what git-stream saw, not a source of
+  truth (Zuul is), and it is separate from the forge state in `state.db`.
 
 State is a JSON file next to bare repositories in the data directory.
 
@@ -197,6 +202,10 @@ token = "WEBHOOK_TOKEN"
 zuul_api = "http://zuul-web:9000/api/tenant/TENANT"
 max_attempts = 3
 escalate = []                         # URLs to POST escalations to
+
+[metrics]                             # what the jobs did, in a database
+path = "/srv/git-stream/metrics.db"    # "" leaves it off
+build_url = "http://zuul-web:9000/build"
 ```
 
 Environment variables (`GIT_STREAM_MAX_ATTEMPTS`, `GIT_STREAM_WEBHOOKS`,

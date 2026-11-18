@@ -30,3 +30,10 @@ author = "git-stream"
 # Escalations are shown on http://localhost:8090/escalations; list URLs
 # here to also POST them somewhere (e.g. something that opens Jira tickets).
 escalate = []
+
+# Record what the jobs did in a SQLite database: each completed build,
+# escalation and webhook delivery.  Read it on http://localhost:8090/metrics
+# or GET /api/stream/metrics.  Leave path empty to turn it off.
+[metrics]
+path = "/srv/git-stream/metrics.db"
+build_url = "http://localhost:9000/build"

@@ -25,11 +25,12 @@ EVENT_HEADERS = {
 
 
 class WebhookSender(threading.Thread):
-    def __init__(self, urls, token, max_backoff=30):
+    def __init__(self, urls, token, max_backoff=30, metrics=None):
         super().__init__(daemon=True, name='webhooks')
         self.urls = list(urls)
         self.token = token
         self.max_backoff = max_backoff
+        self.metrics = metrics
         self.queue = queue.Queue()
         # Recent deliveries, newest first, for GET /api/stream/deliveries.
         self.recent = collections.deque(maxlen=50)
@@ -49,6 +50,10 @@ class WebhookSender(threading.Thread):
                 continue
             for url in self.urls:
                 self._deliver(url, payload)
+
+    def _record(self, entry):
+        if self.metrics is not None:
+            self.metrics.record_delivery(entry)
 
     def _deliver(self, url, payload):
         kind = payload['object_kind']
@@ -70,12 +75,14 @@ class WebhookSender(threading.Thread):
                 with urllib.request.urlopen(req, timeout=10) as r:
                     entry['status'] = r.status
                 log.info('Delivered %s to %s', entry['summary'], url)
+                self._record(entry)
                 return
             except urllib.error.HTTPError as e:
                 entry['status'] = e.code
                 if 400 <= e.code < 500:
                     log.error('%s rejected %s: HTTP %s', url,
                               entry['summary'], e.code)
+                    self._record(entry)
                     return
             except OSError as e:
                 entry['status'] = str(e)

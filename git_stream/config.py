@@ -29,6 +29,10 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   author = "git-stream"                 # who posts the reruns
   escalate = []                         # URLs to POST escalations to
   settle = 2                            # seconds before reading results
+
+  [metrics]                             # what the jobs did, in a database
+  path = ""                             # SQLite file ("" = <data>/metrics.db)
+  build_url = ""                        # prefix for build links; "" = none
 """
 
 import os
@@ -66,6 +70,13 @@ SCHEMA = {
         'author': ('git-stream', str, 'GIT_STREAM_RETRY_AUTHOR'),
         'escalate': ([], list, 'GIT_STREAM_ESCALATE'),
         'settle': (2, int, 'GIT_STREAM_RETRY_SETTLE'),
+    },
+    'metrics': {
+        # Where the metrics database lives; empty = <data>/metrics.db.
+        'path': ('', str, 'GIT_STREAM_METRICS_PATH'),
+        # Prefix for per-build links (e.g. "http://zuul-web:9000/build");
+        # empty leaves the build_url column empty.
+        'build_url': ('', str, 'GIT_STREAM_METRICS_BUILD_URL'),
     },
 }
 

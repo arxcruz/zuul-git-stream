@@ -13,6 +13,9 @@
 - TOML config file for every setting, env/CLI overrides.
 - Podman demo with announce, retries, escalation, Depends-On fix,
   approval, ci-tool merge/break, interactive `demo.sh`.
+- SQLite metrics store: records every completed build, escalation and
+  webhook delivery; `GET /api/stream/metrics` (JSON) and the `/metrics`
+  page.  Opt-in via `[metrics] path`.
 
 ## Next, by priority
 
@@ -25,10 +28,14 @@
 3. **Durable retry queue**: same for `retry.py` (a restart between
    Zuul's report and the rerun loses the retry).  On startup, scan
    opened MRs whose last Zuul report failed.
-4. **SQLite instead of `state.json`**: the JSON file is rewritten on
-   every change and notes grow unbounded.
-5. TLS / reverse proxy guidance, request size limits, metrics
-   (deliveries, retries, escalations), structured logs.
+4. ~~**SQLite instead of `state.json`**~~ **done** — forge state (projects,
+    MRs, notes) is in a SQLite database (`<data>/state.db`, with a JSON
+    fallback); it is rewritten on every change but no longer grows with the
+    unbounded notes list.  The metrics store (`metrics.py`) is a separate
+    database for job activity.
+
+5. TLS / reverse proxy guidance, request size limits,
+   (metrics: see "Done" above), structured logs.
 6. Optional read token for the API and git.
 
 ### Features

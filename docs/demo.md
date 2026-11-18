@@ -87,6 +87,7 @@ and proxies git-stream's and Zuul's APIs.
 | `GET /api/bundles` | MRs + per-job latest verdict + busy/approved/escalated |
 | `GET /api/ci-tool` | `broken_jobs` on master + fix MR |
 | `GET /api/status`, `/api/builds`, `/api/sent`, `/api/deliveries`, `/api/escalations` | Zuul status, builds, events sent, webhook deliveries, escalations |
+| `GET /api/metrics` | per-job run/pass/fail counts from git-stream's SQLite metrics store (`/metrics` page) |
 
 The page rewrites `http://git-stream:8090` links to the browser's host.
 

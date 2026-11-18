@@ -47,6 +47,7 @@ class Running:
     def stop(self):
         self.server.shutdown()
         self.server.server_close()
+        self.forge.close()
 
 
 @pytest.fixture

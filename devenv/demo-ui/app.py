@@ -323,6 +323,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(ci_tool())
             elif self.path == '/api/escalations':
                 self._json(get(FORGE + '/api/stream/escalations'))
+            elif self.path.startswith('/api/metrics'):
+                query = ('?' + self.path.split('?', 1)[1]) if '?' in self.path else ''
+                self._json(get(FORGE + '/api/stream/metrics' + query))
             elif self.path == '/api/builds':
                 self._json(zuul_get('/builds?limit=12'))
             else:

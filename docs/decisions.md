@@ -84,3 +84,30 @@ don't silently fall back to defaults.
 
 Keeps the service trivially deployable and auditable.  The cost is the
 production gaps listed in [roadmap.md](roadmap.md).
+
+## 11. A SQLite metrics store, not a new state format (Nov 17)
+
+`retry.py` already recomputes "how often did each job fail" from Zuul's
+builds API on every report and then throws the numbers away.  A SQLite
+file (`metrics.py`) records them as they happen: one row per completed
+build (`run`), one per escalation, one per webhook delivery.  The
+database is *additive* — it records job activity, separate from the forge
+state in `state.db` (projects, MRs, notes).  It is a **log of what
+git-stream saw**, not a
+source of truth (Zuul is the source of truth); it exists to answer
+"what failed, how often, over time" and to survive a restart without
+asking Zuul.  Opt-in: no `[metrics] path` = off.  Stdlib `sqlite3`, single
+writer (the retry policy), so no locking.
+
+## 12. Forge state in SQLite, with a JSON fallback (Nov 18)
+
+The forge's own state (projects, merge requests, notes, the deduplication
+list, and the per-MR retry state) moved from a JSON file to a SQLite
+database (`<data>/state.db`).  The JSON file was rewritten whole on every
+change and the notes list grew without bound; a table per entity keeps it
+flat and queryable.  The in-memory view remains authoritative while the
+process runs and is persisted on every change, so the hot path is
+unchanged.  `forge.py` has two interchangeable stores (`SqliteStore`,
+`JsonStore`); SQLite is used when the `sqlite3` module is available and the
+JSON file otherwise, so a host without it still works.  This is the forge
+state, distinct from the metrics database in decision 11.

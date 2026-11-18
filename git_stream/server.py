@@ -48,6 +48,10 @@ def make_handler():
         def sender(self):
             return getattr(self.server, 'sender', None)
 
+        @property
+        def metrics(self):
+            return getattr(self.server, 'metrics', None)
+
         # -- plumbing --------------------------------------------------------
 
         def _send(self, code, body, ctype, headers=None):
@@ -263,6 +267,12 @@ def make_handler():
                                   if self.sender else [])
             if path == '/api/stream/escalations' and self.command == 'GET':
                 return self._json(self.forge.escalations())
+            if path == '/api/stream/metrics' and self.command == 'GET':
+                if self.metrics is None:
+                    return self._error(404, 'metrics not enabled')
+                params = self._params(query)
+                return self._json(self.metrics.summary(
+                    params.get('project'), _days(params)))
             if path != '/api/stream' or self.command != 'POST':
                 return self._error(404, '404 Not Found')
             by = self._stream_user()
@@ -334,6 +344,13 @@ def make_handler():
                 return self._html(*index_page(self.forge))
             if name == 'escalations':
                 return self._html(*escalations_page(self.forge))
+            if name == 'metrics':
+                if self.metrics is None:
+                    return self._error(404, 'metrics not enabled')
+                return self._html(*metrics_page(self.metrics,
+                                                self._params(
+                                                    urllib.parse.urlsplit(path)
+                                                    .query)))
             if name in self.forge.state['projects']:
                 return self._html(*project_page(self.forge, self.forge.project(name)))
             self._send(404, 'Not found\n', 'text/plain')
@@ -346,13 +363,25 @@ def make_handler():
     return Handler
 
 
-def serve(forge, sender, host, port):
+def serve(forge, sender, host, port, metrics=None):
     handler = make_handler()
     server = http.server.ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     server.forge = forge
     server.sender = sender
+    server.metrics = metrics
     return server
+
+
+def _days(params):
+    """The ?days=N window for the metrics endpoint (None = all time)."""
+    raw = params.get('days')
+    if raw in (None, ''):
+        return None
+    try:
+        return max(0, float(raw))
+    except ValueError:
+        return None
 
 
 # -- HTML ---------------------------------------------------------------------
@@ -470,6 +499,30 @@ def escalations_page(forge):
         'kept failing after the automatic re-runs.</div>%s' % (
             ''.join(escalation_box(x, link=True) for x in found) or
             '<div class="box meta">Nothing escalated.</div>'))
+
+
+def metrics_page(metrics, params):
+    project = params.get('project') or None
+    days = _days(params)
+    data = metrics.summary(project, days)
+    scope = project or 'all projects'
+    window = ('last %s days' % days) if days else 'all time'
+    if data['jobs']:
+        rows = ''.join(
+            '<tr><td>%s</td><td>%d</td><td class="opened">%d</td>'
+            '<td class="closed">%d</td><td class="meta">%s</td></tr>' % (
+                e(j['job']), j['runs'], j['pass'], j['fail'],
+                ('%.0f%%' % (j.get('fail_rate', 0) * 100))
+                if j['runs'] else '')
+            for j in data['jobs'])
+    else:
+        rows = '<tr><td class="meta">No runs recorded yet.</td></tr>'
+    return 'Metrics', (
+        '<h1>Metrics</h1><div class="meta">Job results recorded by the '
+        'retry policy · %s · %s · %d runs</div>'
+        '<div class="box"><table><tr><th>Job</th><th>Runs</th><th>Pass</th>'
+        '<th>Fail</th><th>Fail rate</th></tr>%s</table></div>' % (
+            e(scope), window, data['runs'], rows))
 
 
 def mr_page(forge, p, mr):
