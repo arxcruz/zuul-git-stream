@@ -64,6 +64,12 @@ persistent failures are escalated (Jira later).
 - **Before saying a task is done, run the full check command**
   (`scripts/check.sh`, see [The gate](#the-gate-run-before-saying-done)).  A
   branch is ready only when it is green.
+- **Before a branch is put up for approval, run `/review`** (the read-only
+  `branch-reviewer`).  A finding marked *unverified* must be checked or
+  reproduced before anyone acts on it; it may be a false positive.  Each
+  *verified* finding is triaged as fix now, backlog (add it to
+  [docs/backlog.md](docs/backlog.md)) or ignore, and the summary you present
+  says which.
 - **Merge to `main` only after the human explicitly approves that branch in
   the current conversation.**  Never merge on your own judgment, and never push
   unless asked.  Present the branch and a summary of the diff, then wait.
