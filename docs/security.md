@@ -39,7 +39,9 @@ a handler thread:
 | `[server] read_timeout` | 30 s | a client silent this long while sending is **408** and dropped; also drops idle keep-alive connections and half-sent request lines |
 | `[server] body_timeout` | 120 s | a whole body must arrive within this, however steadily it trickles (**408**) |
 
-The body is read before the forge's lock is taken, so a slow client never
+A client that vanishes mid-request (reset, broken pipe) is dropped quietly,
+and the listen backlog is 128, not the standard 5, so a burst of connections
+is not refused.  The body is read before the forge's lock is taken, so a slow client never
 blocks the other clients.  A refusal closes the connection, because the rest
 of the body is still in the stream.  Malformed input is a 4xx and never
 echoes an exception: a bad `Content-Length` (not a plain number), a bad chunk

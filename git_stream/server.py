@@ -64,6 +64,15 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
         # for a request line or between keep-alive requests.
         timeout = read_timeout
 
+        def handle(self):
+            # A client that vanished (reset, broken pipe, or not reading its
+            # reply) is not an error worth a traceback.
+            try:
+                super().handle()
+            except (ConnectionError, TimeoutError) as e:
+                log.debug('%s: connection lost: %s', self.address_string(), e)
+                self.close_connection = True
+
         def log_message(self, fmt, *args):
             log.debug('%s %s', self.address_string(), fmt % args)
 
@@ -126,6 +135,12 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                 data += more
             return bytes(data)
 
+        def _read_exactly(self, size, deadline):
+            data = self._read(size, deadline)
+            if len(data) < size:
+                self._fail(400, 'incomplete request body')
+            return data
+
         def _readline(self, deadline):
             line = b''
             while not line.endswith(b'\n'):
@@ -153,7 +168,7 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                     while self._readline(deadline).strip():
                         pass  # trailers
                     return bytes(data)
-                data += self._read(size, deadline)
+                data += self._read_exactly(size, deadline)
                 if self._readline(deadline).strip():
                     self._fail(400, 'invalid chunked body: bad chunk end')
 
@@ -172,7 +187,7 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                     self._fail(400, 'invalid Content-Length')
                 if len(length) > 18 or int(length) > max_body:
                     self._fail(413, self._too_large())
-                return self._read(int(length), deadline)
+                return self._read_exactly(int(length), deadline)
             finally:
                 self.connection.settimeout(read_timeout)
 
@@ -252,6 +267,8 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                 self._error(404, '404 Not Found')
             except ForgeError as e:
                 self._error(e.status, str(e))
+            except (ConnectionError, TimeoutError):
+                raise  # the client is gone: handle() drops the connection
             except Exception:
                 log.exception('Error handling %s %s', self.command, self.path)
                 self._error(500, 'internal error')
@@ -468,10 +485,16 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
     return Handler
 
 
+class Server(http.server.ThreadingHTTPServer):
+    # The default of 5 refuses (on macOS, resets) a burst of connections
+    # that the accept loop has not reached yet.
+    request_queue_size = 128
+
+
 def serve(forge, sender, host, port, metrics=None, max_body=MAX_BODY,
           read_timeout=READ_TIMEOUT, body_timeout=BODY_TIMEOUT):
     handler = make_handler(max_body, read_timeout, body_timeout)
-    server = http.server.ThreadingHTTPServer((host, port), handler)
+    server = Server((host, port), handler)
     server.daemon_threads = True
     server.forge = forge
     server.sender = sender

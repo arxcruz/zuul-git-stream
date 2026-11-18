@@ -240,3 +240,37 @@ def test_a_stalled_body_does_not_hold_the_forge_lock(make_forge):
         assert time.monotonic() - start < 5
     finally:
         stalled.close()
+
+
+# -- clients that vanish ---------------------------------------------------------
+
+def test_a_client_that_resets_mid_body_is_not_an_error(
+        limited, caplog, capfd):
+    import struct
+    import time
+    with caplog.at_level('DEBUG', logger='git_stream'):
+        c = Conn(limited)
+        c.send(head(length=100) + b'abc')
+        c.sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                          struct.pack('ii', 1, 0))  # close sends a reset
+        c.close()
+        time.sleep(0.5)
+    assert health(limited) == 200
+    assert [r for r in caplog.records if r.levelname == 'ERROR'] == []
+    assert 'Traceback' not in capfd.readouterr().err
+
+
+def test_the_listen_backlog_holds_a_burst(limited):
+    """With the standard backlog of 5, a separate process connecting 60
+    clients at once got resets (checked by hand against a real server; an
+    in-process client and the accept loop share a GIL and never overflow
+    it, so this checks the setting itself)."""
+    assert limited.server.request_queue_size >= 64
+
+
+def test_a_body_that_ends_early_is_a_client_error(limited, conn):
+    conn.send(head(length=100) + b'abc')
+    conn.sock.shutdown(socket.SHUT_WR)  # no more is coming
+    status, body = conn.response()
+    assert status == 400
+    assert 'incomplete' in json.loads(body)['message']
