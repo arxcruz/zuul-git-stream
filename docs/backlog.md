@@ -23,9 +23,8 @@ lines that pass).  The receive-pack cases are marked inline instead (see the
 last group).
 
 Not yet checked against any implementation (the other groups each passed
-against a throwaway prototype): the branch-and-tag-names tests and the
-git-read-only fix.  Prototype or implement
-those first, and treat a failing test there as possibly a test bug.
+against a throwaway prototype): the git-read-only fix.  Prototype or
+implement it first, and treat a failing test there as possibly a test bug.
 
 - **webhook delivery** (`tests/test_webhooks.py`): one ordered queue per URL,
   so a dead URL never delays another (and `stop()` ends every thread); no
@@ -48,11 +47,6 @@ those first, and treat a failing test there as possibly a test bug.
   need the default branch (push without `branch`, tag without `rev`, open_mr
   without `target_branch`) are 409 "project 'x' has an invalid default
   branch '-x'; recreate it"; everything else keeps working.
-- **branch and tag names** (`test_forge.py`): invalid names for a push's
-  `branch`, an MR's `target_branch` and a tag are 400 "invalid branch name" /
-  "invalid tag name"; tagging an existing name is 409 "already exists".  A
-  push's `start` is a revision, not a branch name, so it is not validated as
-  one.  (`create_project`'s branch is already validated.)
 - **git read-only check** (`tests/test_git_read_only.py`, 9 inline
   `KNOWN_GAP` markers): `server.py:_git` refuses receive-pack by matching the
   literal text in the raw path and query, so a percent-encoded
@@ -100,8 +94,8 @@ section 1.
   the response.
 - `repos.GitError` is never caught, so a git failure (for example a revision
   the client named that does not exist) is a 500 `internal error`; it should
-  be a 4xx where the cause is the client's (with the branch and tag names
-  group above).  Its text, which includes git's arguments and stderr, no
+  be a 4xx where the cause is the client's (branch and tag names and an
+  existing tag are done; other causes remain).  Its text, which includes git's arguments and stderr, no
   longer reaches the client.
 
 - HTML pages are built with string concatenation and `html.escape`; not every
