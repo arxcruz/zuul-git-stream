@@ -202,8 +202,10 @@ section 1.
   would reorder most files.  `pyproject.toml` ignores `F401` in
   `git_stream/metrics.py` and `tests/test_metrics.py` (unused imports); delete
   the imports and the ignores.
-- The suite takes about two minutes, mostly timeout and retry tests; consider
-  trimming waits or a marker for the slow ones.
+- The serial gate is slow because many tests wait on purpose (timeouts, retry
+  backoff).  The `slow` marker lets the fast loop skip the slowest of them, but
+  the rest still take most of the serial time (`pytest --durations=25` shows
+  where); trimming those waits would shorten both.
 - Stop hook (`.claude/hooks/stop-checks.py`), from the branch review:
   `fingerprint()` reads every changed file whole, so a very large untracked
   file not covered by `.gitignore` slows every Stop (hash a size and mtime
@@ -218,5 +220,4 @@ section 1.
   `main` and tighten the patterns if any of these slips through.  Several
   tests in `tests/test_spec_skill.py` grep the prose for keywords ("never",
   "recommend", "plan"), so they show the skill mentions a behavior, not that
-  it demands it.  `AGENTS.md` quotes test counts ("320 passed, 27 xfailed")
-  that the suite has outgrown.
+  it demands it. 
