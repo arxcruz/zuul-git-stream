@@ -29,7 +29,10 @@ and per-failure events.  The last two go to `docs/backlog.md`.
 ## Done means
 
 - Tests for each scenario above.
-- The Zuul contract tests unchanged and passing (Zuul sees no new field).
+- The Zuul contract tests unchanged and passing, plus one that runs Zuul
+  against an MR with a `callback_url`.  The webhooks carry no new field; the
+  REST API's merge request JSON gains `callback` (the delivery status), which
+  Zuul ignores.
 - `docs/security.md`, the README events table and the `stream.py` docstring
   updated.
 - The full gate green.

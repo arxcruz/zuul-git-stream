@@ -66,16 +66,18 @@ where git-stream makes a request to an address a sender picked, so:
   callback from a forged one.  Don't act on one without checking it with
   the sender's own system.
 - **The URL is never echoed**: it may hold a secret in its query.  The merge
-  request JSON, the pages, the escalation list and the webhooks to Zuul show
-  only the outcome, the sha, the time and `delivered` or `failed: <cause>`
-  (the URL is removed from the cause).  The URL is stored in `state.db`, so
+  request JSON shows only the outcome, the sha, the time and `delivered` or
+  `failed: <cause>` (the URL is removed from the cause); the pages, the
+  escalation list and the webhooks to Zuul show none of it.  The URL is stored in `state.db`, so
   protect that file like the tokens.
 - **Bounded and validated**: only `http` and `https` with a host (no
   `file:`, no whitespace) pass, checked before anything is created.  One
   attempt, 10 second timeout, redirects refused, the body is fixed JSON, and
   a hung receiver can't delay Zuul or other merge requests.
-- Zuul sees nothing of it: `callback` and `callback_url` are kept out of the
-  webhooks (`tests/test_callbacks.py`).
+- Zuul never sees the URL.  The `callback` status list is in the merge
+  request JSON of the REST API (Zuul ignores it) but not in the webhooks;
+  see [zuul-contract.md](zuul-contract.md).  The pages don't show the
+  callback at all (backlog).
 
 ## The demo's secrets
 
