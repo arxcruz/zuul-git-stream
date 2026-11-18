@@ -121,12 +121,14 @@ git_stream/               the service (stdlib only)
   stream.py               the event vocabulary (POST /api/stream)
   webhooks.py             ordered webhook delivery with retries
   retry.py                retry/escalation policy (talks to Zuul's builds API)
+  callbacks.py            per-MR callback_url: POSTs the final outcome
   metrics.py              SQLite log of builds, escalations and deliveries
 tests/
   conftest.py             `forge` fixture: a real server on a free port
   test_forge.py           git over HTTP, keys/ids, merges, pages, seeding
   test_zuul_contract.py   Zuul's own GitlabAPIClient + webhook parser vs git-stream
   test_retry.py           retry/escalation with a fake Zuul builds API
+  test_callbacks.py       callback_url: validation, outcomes, failures, migration
   test_config.py          config file / env / CLI precedence and errors
   test_metrics.py         the metrics store and its endpoint
   test_webhooks.py        webhook delivery: headers, order, failing receivers

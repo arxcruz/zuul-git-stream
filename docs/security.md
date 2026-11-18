@@ -73,8 +73,11 @@ where git-stream makes a request to an address a sender picked, so:
 - **Bounded and validated**: only `http` and `https` with a host pass, at
   most 2048 characters, no whitespace or control characters (DEL included),
   checked before anything is created.  One
-  attempt, 10 second timeout, redirects refused, the body is fixed JSON, and
-  a hung receiver can't delay Zuul or other merge requests.
+  attempt, redirects refused, the body is fixed JSON, and a hung receiver
+  can't delay Zuul or other merge requests.  The 10 second timeout applies to
+  each socket operation (connect, each read), not to the whole delivery, so a
+  receiver that sends a byte every few seconds can keep its thread for much
+  longer (backlog).
 - **No proxy**: `HTTP_PROXY`, `HTTPS_PROXY` and friends are ignored, so a
   callback goes straight to its URL and can't be sent through a proxy that
   was set up for something else.

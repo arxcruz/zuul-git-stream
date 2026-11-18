@@ -134,6 +134,18 @@ section 1.
   whole `escalation` record are sent to Zuul.  Only `callback` is removed.
   Check this against [zuul-contract.md](zuul-contract.md) and the contract
   tests, then drop them from `_hook_mr_attrs` if Zuul doesn't need them.
+- Callbacks, found in review, not done:
+  - A slow-drip receiver can keep a delivery thread for far longer than the
+    10 s timeout, which is per socket operation.  Add a total deadline.
+  - A callback stays `status: null` forever if git-stream exits before the
+    delivery ends, and is not retried on restart (it needs the durable queue).
+  - The `failed: <cause>` text comes from the receiver (its status line).  It
+    is plain text in the JSON; if a page ever shows it, escape it.
+  - A page showing the callback status (the merge request page, the demo UI):
+    today only `mr_json` has it.
+  - `tests/test_callbacks.py` leans on sleeps and wall-clock bounds (the
+    hanging receiver, "nothing arrives" waits), which may be flaky on a slow
+    or loaded machine.
 - `callback_url` deliveries (`git_stream/callbacks.py`) run one thread each, so
   there is no limit on how many run at once, and two callbacks of the same MR
   (say `escalated`, then `passed`) are not guaranteed to arrive in the order
