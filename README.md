@@ -111,7 +111,12 @@ An event is a JSON object with an `action`.  Send it to `POST
   addressed by it later (`"mr": "b-0042"`).  Opening a merge request with a key that is still
   open updates it instead.
 - An event `id` makes a resent event a no-op.
-- Every event may carry `author` (default `git-stream`).
+- An event acts as the sender, not as whatever its `author` says.  With
+  `[stream] tokens` (`user = token`) set, it acts as the user its token
+  names; `author` may repeat that user, and naming anyone else is a 403.
+  On an open stream (no tokens) it acts as `git-stream`; `author` may be
+  any name except `[retry] report_users` (default `zuul`), which is a 403,
+  because a forged `Build failed` from Zuul would drive the retries.
 
 ```sh
 curl -X POST localhost:8090/api/stream -d '{

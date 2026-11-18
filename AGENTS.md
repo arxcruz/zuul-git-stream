@@ -102,7 +102,9 @@ tests/
   test_safety_net.py      contract tests without Zuul; scripts/check.sh
   test_pending.py         the tests/pending.txt mechanism
   test_branch_guard_hook.py  the hook that blocks commits on main
-  test_stream_identity.py, test_server_limits.py, test_insecure_defaults.py,
+  test_stream_identity.py who a stream message acts as (token, not "author")
+  test_stream_apply.py    stream.apply's choke point without HTTP: sender, refusals
+  test_server_limits.py, test_insecure_defaults.py,
   test_legacy_state.py, test_wiring.py
                           specs for behavior not built yet (see the backlog)
   pending.txt             the tests that are strict xfails until built

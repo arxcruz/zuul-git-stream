@@ -13,7 +13,9 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   zuul = "secret-api-token"
 
   [stream]                              # POST /api/stream; open unless a
-                                        # token is set
+                                        # token is set.  A message acts as
+                                        # its token's user; it can't claim
+                                        # another "author"
   build-system = "secret-stream-token"
 
   [webhooks]
@@ -24,7 +26,8 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   [retry]                               # off without zuul_api
   zuul_api = "http://zuul-web:9000/api/tenant/main"
   max_attempts = 3                      # runs of a failing job, first included
-  report_users = ["zuul"]               # whose comments are Zuul's reports
+  report_users = ["zuul"]               # Zuul's reports (not allowed as
+                                        # stream authors)
   failed_pattern = '^\\s*Build failed'   # a report that says "failed"
   author = "git-stream"                 # who posts the reruns
   escalate = []                         # URLs to POST escalations to

@@ -27,13 +27,6 @@ against a throwaway prototype): the branch-and-tag-names tests, the
 malformed-requests tests, and the git-read-only fix.  Prototype or implement
 those first, and treat a failing test there as possibly a test bug.
 
-- **stream identity** (`tests/test_stream_identity.py`): with stream tokens, a
-  message acts as its token's user (`author` defaults to it) and naming
-  another user is 403 "token for 'x' may not act as 'y'"; on an open stream
-  any author works except `[retry] report_users` (default `zuul`), which is
-  403 "reserved".  `git-stream` can't be reserved: it is the default author.
-  Needs `Forge(report_users=)`.  Why: a forged "Build failed." from `zuul`
-  drives the retry and escalation path, and anyone can approve as anyone.
 - **request limits** (`tests/test_server_limits.py`, `test_request_limits` in
   `test_config.py`): a body over `[server] max_body` (10 MiB) is 413 without
   being read (stream, REST API, git POST, chunked, huge chunk size); a client
@@ -154,6 +147,15 @@ section 1.
 - `devenv/common.sh` runs `git clone "$ZUUL_REPO"` and
   `git checkout "$ZUUL_REF"` without `--`; the values come from that file
   (operator-controlled), so the risk is low.
+- Stream tokens are compared with `==` in `Forge.stream_user_for_token`
+  (`forge.py`), which is not constant-time, and the same goes for
+  `user_for_token`'s dict lookup; use `hmac.compare_digest` over every
+  configured token.  Why: timing can leak a token to a client that can reach
+  the stream.
+- Two users can be given the same stream token and the first one in the map
+  silently wins (`stream_user_for_token`), so the second user's messages act
+  as the first.  Refuse duplicate tokens at startup (`config.py` or
+  `build_forge`) and say which users share one.
 - Duplicated or inconsistent patterns: the stream handlers `_approve`,
   `_unapprove`, `_merge` and `_state` each repeat `_require(msg, 'mr')`; token
   parsing is duplicated between `_user` and `_stream_user` with inverted

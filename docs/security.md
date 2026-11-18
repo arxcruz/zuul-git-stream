@@ -10,7 +10,7 @@ channel that an attacker can reach.
 |--------|-------------|---------|
 | `[api_tokens]` (Zuul → git-stream REST writes) | Zuul `GitlabAPIClient` sends `Authorization: Bearer` | token moves to the environment (step 4) |
 | `[webhooks] token` (git-stream → Zuul) | git-stream sends `X-Gitlab-Token` | token moves to the environment (step 4) |
-| `[stream] tokens` (`POST /api/stream`) | the announcing system | **new** — sender token required when configured; open + warned by default |
+| `[stream] tokens` (`POST /api/stream`) | the announcing system | sender token required when configured, and the message acts as the token's user (it cannot claim another); open + warned by default, where `report_users` names are refused as authors |
 | git clone/fetch | Zuul executor/merger | anonymous by default; a token is a deployment option (below) |
 | `[retry] zuul_api` URL | git-stream reads Zuul's builds API | unauthenticated; gate it at the network (below) |
 
@@ -25,7 +25,8 @@ channel that an attacker can reach.
    so a token in transit is not "in an open format."
 3. **TLS on every hop.** git-stream and Zuul web behind a proxy with TLS.
 4. **Auth the open channels.** `POST /api/stream` requires per-sender tokens
-   (`[stream]`); the builds-API read is gated by the network (Zuul's web API
+   (`[stream]`), and a sender can only act as its own user (`stream.apply`
+   refuses any other `author` with 403); the builds-API read is gated by the network (Zuul's web API
    is not token-scoped per caller, so a reverse-proxy auth in front of it is
    the clean lever).
 5. **Minimize token value.** A long-lived token in a private, TLS-only network
@@ -58,6 +59,10 @@ Done (committed):
 - **`[stream]` sender tokens** on `POST /api/stream` (code + test). This is
   the most dangerous open surface: unauthenticated, anyone who can reach
   git-stream can open MRs and trigger Zuul jobs.
+- **Stream identity** (code + `tests/test_stream_identity.py`): a message
+  acts as its token's user, never as the `author` it claims.  On an open
+  stream the `[retry] report_users` names are refused, so nobody can forge
+  Zuul's `Build failed` and drive the retry and escalation path.
 - **Robust `_body`** (no-Content-Length / closed-connection → empty body,
   not a 500).
 

@@ -67,13 +67,6 @@ tests/test_server_input.py::test_bad_chunked_framing_is_a_client_error[/api/v4/p
 tests/test_server_input.py::test_bad_chunked_framing_is_a_client_error[/api/v4/projects/bundles/merge_requests/1/notes--5]
 tests/test_server_input.py::test_bad_chunked_framing_is_a_client_error[/api/v4/projects/bundles/merge_requests/1/notes-]
 
-# group: stream identity
-tests/test_stream_identity.py::test_a_token_acts_as_its_user_by_default
-tests/test_stream_identity.py::test_a_token_cannot_act_as_someone_else
-tests/test_stream_identity.py::test_in_a_batch_only_the_allowed_messages_are_applied
-tests/test_stream_identity.py::test_open_stream_allows_other_authors
-tests/test_stream_identity.py::test_open_stream_refuses_the_names_zuul_reports_under
-
 # group: webhook delivery
 tests/test_webhooks.py::test_no_token_means_no_token_header
 tests/test_webhooks.py::test_a_dead_url_does_not_delay_a_healthy_one

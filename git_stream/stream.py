@@ -19,13 +19,19 @@ forge assigns, and a message "id" makes a resent message harmless.
   {"action": "approve" | "unapprove" | "close" | "reopen" | "merge",
    "project": "p", "mr": 3}
 
-Every message may also carry "author" (default "git-stream") and "id".
+Every message may also carry "author" and "id".  Who a message acts as
+comes from the sender's token, not from the message:
+
+- with stream tokens configured, a message acts as the user its token
+  names; "author" may repeat that user but naming anyone else is a 403;
+- on an open stream (no tokens) the sender is "git-stream" and "author"
+  may be any name except the users the retry policy trusts as Zuul's own
+  (`[retry] report_users`), which is a 403.
+
 In "files", a null value deletes the file.
 """
 
 from git_stream.forge import ForgeError
-
-DEFAULT_AUTHOR = 'git-stream'
 
 
 def _require(msg, *names):
@@ -57,18 +63,39 @@ def _labels(value):
     return [x.strip() for x in value or [] if x and x.strip()]
 
 
-def apply(forge, msg):
-    """Apply one stream message to the forge and return the result."""
+def _author(forge, msg, sender):
+    """Who msg acts as: its sender, unless the sender may speak for a name.
+
+    The one place identity is decided.  Zuul's reports are recognised by
+    their author (see retry.py), so a forged "Build failed." from "zuul"
+    would drive the retry and escalation path.
+    """
+    author = msg.get('author') or sender
+    if not isinstance(author, str):
+        raise ForgeError('"author" must be a string')
+    if author == sender:
+        return author
+    if forge.stream_tokens:
+        raise ForgeError('token for %r may not act as %r' % (sender, author),
+                         403)
+    if author in forge.report_users:
+        raise ForgeError('%r is reserved for Zuul\'s reports and may not '
+                         'be used as an author' % author, 403)
+    return author
+
+
+def apply(forge, msg, sender):
+    """Apply one stream message, sent by sender, and return the result."""
     if not isinstance(msg, dict):
         raise ForgeError('a message must be a JSON object')
     action = msg.get('action')
     if action not in ACTIONS:
         raise ForgeError('unknown action %r; expected one of %s' % (
             action, ', '.join(sorted(ACTIONS))))
+    by = _author(forge, msg, sender)  # before seen(): a refusal isn't a send
     if msg.get('id') is not None and forge.seen('%s' % msg['id']):
         return {'duplicate': True, 'id': msg['id']}
     _require(msg, 'project')
-    by = msg.get('author') or DEFAULT_AUTHOR
     return ACTIONS[action](forge, msg, by)
 
 

@@ -123,6 +123,7 @@ def main(argv=None):
     observers = [sender.emit]
     forge = Forge(server_cfg['data'], base_url, users=users,
                   stream_tokens=stream_tokens,
+                  report_users=retry['report_users'],
                   emit=lambda payload: [f(payload) for f in observers])
     if retry['zuul_api']:
         policy = RetryPolicy(

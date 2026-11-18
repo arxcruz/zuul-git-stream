@@ -83,7 +83,12 @@ Routes:
   by `[api_tokens]`.  With no tokens configured, any token acts as `zuul`.
 - `/<project>.git/...`: `git http-backend` as CGI, upload-pack only;
   receive-pack returns 403 (changes come through the stream).
-- `/api/stream` (POST), `/api/stream/deliveries`, `/api/stream/escalations`, `/api/stream/metrics` (when metrics is on).
+- `/api/stream` (POST): the sender is resolved from the token
+  (`stream_user_for_token`) and passed to `stream.apply(forge, msg, sender)`,
+  the one place that decides who a message acts as (`stream._author`): the
+  token's user, or with `author` set, only that same user; on an open stream
+  any author except `report_users`.  A refusal is a 403, per message in a
+  batch.  Also served: `/api/stream/deliveries`, `/api/stream/escalations`, `/api/stream/metrics` (when metrics is on).
 - HTML: `/`, `/escalations`, `/metrics`, `/<project>`, `/<project>/merge_requests/<iid>`.
 - `/health`.
 
@@ -106,7 +111,8 @@ note from one of `report_users` matching `failed_pattern`, it queues
 4. otherwise escalates once per sha: stores `mr['escalation']` (and, when metrics is on, a metrics row), comments
    a summary, adds label `escalated`, POSTs the event to `escalate` URLs.
 The policy's own comments come from `author` (not a report user), so it
-never reacts to itself.  The rerun comment is interpreted by the
+never reacts to itself.  Stream senders cannot post as a report user
+(see `/api/stream` above), so only Zuul's own REST comments can start it.  The rerun comment is interpreted by the
 **Zuul job config**, not by git-stream: a pipeline triggered by
 `rerun` comments, whose first job (`bundle-dispatch` in the demo) reads
 the comment back from git-stream's API and sets `zuul.child_jobs`.

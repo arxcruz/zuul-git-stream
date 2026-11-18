@@ -275,8 +275,8 @@ def make_handler():
                     params.get('project'), _days(params)))
             if path != '/api/stream' or self.command != 'POST':
                 return self._error(404, '404 Not Found')
-            by = self._stream_user()
-            if by is None:
+            sender = self._stream_user()
+            if sender is None:
                 return self._error(401, '401 Unauthorized')
             try:
                 msgs = json.loads(self._body() or b'null')
@@ -286,11 +286,11 @@ def make_handler():
                 results = []
                 for msg in msgs:
                     try:
-                        results.append(stream.apply(self.forge, msg))
+                        results.append(stream.apply(self.forge, msg, sender))
                     except ForgeError as e:
                         results.append({'error': str(e)})
                 return self._json(results)
-            return self._json(stream.apply(self.forge, msgs))
+            return self._json(stream.apply(self.forge, msgs, sender))
 
         # -- git over HTTP ---------------------------------------------------
 
