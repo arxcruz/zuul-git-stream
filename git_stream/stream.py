@@ -126,7 +126,8 @@ def _open_mr(forge, msg, by):
         target_branch=msg.get('target_branch'),
         message=msg.get('message'), key=msg.get('key'),
         labels=_labels(msg.get('labels')),
-        max_attempts=_int(msg, 'max_attempts'))
+        max_attempts=_int(msg, 'max_attempts'),
+        callback_url=msg.get('callback_url'))
 
 
 def _update_mr(forge, msg, by):

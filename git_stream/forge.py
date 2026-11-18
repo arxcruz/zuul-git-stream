@@ -19,6 +19,7 @@ import logging
 import os
 import sqlite3
 import threading
+import urllib.parse
 import zlib
 
 from git_stream.repos import Repo, ZERO_SHA, valid_branch, valid_tag
@@ -35,7 +36,12 @@ MR_COLUMNS = ('id', 'iid', 'project_id', 'title', 'description', 'state',
               'target_branch', 'source_branch', 'sha', 'start_sha',
               'author', 'labels', 'approved_by', 'created_at', 'updated_at',
               'merged_at', 'closed_at', 'merge_commit_sha', 'key',
-              'max_attempts', 'escalated_sha', 'escalation')
+              'max_attempts', 'escalated_sha', 'escalation',
+              'callback_url', 'callback')
+
+# Columns added after the first release, with their type: a database made by
+# an older version gets them on open (SqliteStore.migrate).
+ADDED_MR_COLUMNS = (('callback_url', 'TEXT'), ('callback', 'TEXT'))
 
 
 class ForgeError(Exception):
@@ -78,7 +84,8 @@ class SqliteStore:
       author TEXT, labels TEXT, approved_by TEXT,
       created_at TEXT, updated_at TEXT, merged_at TEXT, closed_at TEXT,
       merge_commit_sha TEXT, key TEXT, max_attempts INTEGER,
-      escalated_sha TEXT, escalation TEXT);
+      escalated_sha TEXT, escalation TEXT,
+      callback_url TEXT, callback TEXT);
     CREATE TABLE IF NOT EXISTS note (
       id INTEGER PRIMARY KEY, mr_id INTEGER, body TEXT, author TEXT,
       created_at TEXT);
@@ -91,7 +98,17 @@ class SqliteStore:
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(self.SCHEMA)
+        self.migrate()
         self.conn.commit()
+
+    def migrate(self):
+        """Add the columns an older database lacks, keeping every row."""
+        have = {r['name'] for r in self.conn.execute(
+            'PRAGMA table_info(mr)')}
+        for name, kind in ADDED_MR_COLUMNS:
+            if name not in have:
+                self.conn.execute(
+                    'ALTER TABLE mr ADD COLUMN %s %s' % (name, kind))
 
     def close(self):
         self.conn.close()
@@ -112,6 +129,8 @@ class SqliteStore:
             mr['approved_by'] = _loads(mr['approved_by'])
             mr['notes'] = []
             mr['escalation'] = _loads(mr['escalation'])
+            mr['callback'] = (None if mr['callback'] is None
+                              else json.loads(mr['callback']))
             state['mrs'][mr['project_id'], mr['iid']] = mr
             if mr['key']:
                 state['keys'][mr['project_id'], str(mr['key'])] = mr['iid']
@@ -209,12 +228,30 @@ def _check_branch(branch):
                          'as "master" or "release/1.0"' % (branch,))
 
 
+def check_callback_url(value):
+    """The callback_url of an open_mr, or ForgeError: an http(s) URL."""
+    what = 'callback_url must be an http or https URL, such as ' \
+           '"https://announcer.example.com/outcome"'
+    if not isinstance(value, str):
+        raise ForgeError(what)
+    if any(c.isspace() or ord(c) < 32 for c in value):
+        raise ForgeError(what)
+    try:
+        parts = urllib.parse.urlsplit(value)
+        host = parts.hostname
+        parts.port
+    except ValueError:
+        raise ForgeError(what) from None
+    if parts.scheme not in ('http', 'https') or not host:
+        raise ForgeError(what)
+
+
 def _loads(value):
     return json.loads(value) if value else []
 
 
 def _mr_tuple(mr, pid, iid):
-    """The 20-column value tuple for an MR row, in MR_COLUMNS order."""
+    """The 24-column value tuple for an MR row, in MR_COLUMNS order."""
     return (mr['id'], iid, pid, mr['title'], mr['description'], mr['state'],
             mr['target_branch'], mr['source_branch'], mr['sha'],
             mr['start_sha'], mr['author'],
@@ -223,7 +260,10 @@ def _mr_tuple(mr, pid, iid):
             mr['created_at'], mr['updated_at'], mr.get('merged_at'),
             mr.get('closed_at'), mr.get('merge_commit_sha'), mr.get('key'),
             mr.get('max_attempts'), mr.get('escalated_sha'),
-            json.dumps(mr['escalation']) if mr.get('escalation') else None)
+            json.dumps(mr['escalation']) if mr.get('escalation') else None,
+            mr.get('callback_url'),
+            None if mr.get('callback') is None
+            else json.dumps(mr['callback']))
 
 
 def _load_store(data_dir):
@@ -407,6 +447,9 @@ class Forge:
             'max_attempts': mr.get('max_attempts'),
             'escalated': mr.get('escalated_sha') == mr['sha'],
             'escalation': mr.get('escalation'),
+            # Not in GitLab either: what was sent to the callback_url of
+            # the MR (None without one).  The URL itself is never shown.
+            'callback': mr.get('callback'),
         }
 
     def approvals_json(self, p, mr):
@@ -576,9 +619,11 @@ class Forge:
 
     def open_mr(self, project, title, files, by, description='',
                 target_branch=None, message=None, key=None, labels=(),
-                max_attempts=None):
+                max_attempts=None, callback_url=None):
         if target_branch:
             _check_branch(target_branch)
+        if callback_url is not None:
+            check_callback_url(callback_url)
         with self.lock:
             p = self.project(project)
             if key is not None and str(key) in p['keys']:
@@ -610,7 +655,8 @@ class Forge:
                 'merge_commit_sha': None,
                 'key': None if key is None else str(key),
                 'max_attempts': max_attempts, 'escalated_sha': None,
-                'escalation': None,
+                'escalation': None, 'callback_url': callback_url,
+                'callback': None if callback_url is None else [],
             }
             self.state['next_mr_id'] += 1
             p['mrs'][str(iid)] = mr
