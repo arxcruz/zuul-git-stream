@@ -113,7 +113,10 @@ prepare_secrets() {
         chmod 600 .env
         say "Created devenv/.env with generated secrets (not committed)"
     fi
+    # A DEMO_BIND given on the command line wins over the one in .env.
+    local bind=${DEMO_BIND-}
     set -a; source .env; set +a
+    [ -z "$bind" ] || export DEMO_BIND=$bind
     local name sed_args=()
     for name in ZUUL_KEYSTORE_PASSWORD MYSQL_PASSWORD ZUUL_API_TOKEN WEBHOOK_TOKEN; do
         [ -n "${!name:-}" ] || die "$name is empty in .env; set it, or delete .env to generate it again"

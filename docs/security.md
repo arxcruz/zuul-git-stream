@@ -33,8 +33,8 @@ port.
 The demo runs with `insecure = true`, so it is protected by where it
 listens, not by tokens:
 
-- `compose.yaml` publishes every port on `127.0.0.1` (`DEMO_BIND` in
-  `devenv/.env` changes that; do it only on a network you trust).
+- `compose.yaml` publishes every port on `127.0.0.1` (`DEMO_BIND`, in
+  the environment of `deploy.sh` or in `devenv/.env`, changes that; do it only on a network you trust).
 - No secret is committed.  `deploy.sh` creates `devenv/.env` (mode 600,
   git-ignored) from `devenv/.env.example`, with a random value for each of
   `MYSQL_ROOT_PASSWORD`, `MYSQL_PASSWORD`, `ZUUL_KEYSTORE_PASSWORD`,

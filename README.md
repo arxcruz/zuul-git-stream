@@ -57,8 +57,9 @@ The first `./deploy.sh` creates `devenv/.env` with random database
 passwords and tokens (from `devenv/.env.example`; it is not committed) and
 writes `etc_zuul/zuul.conf` from `zuul.conf.in`.  The ports are published
 on `127.0.0.1` only, because the demo's stream is open
-(`[server] insecure = true`).  To reach it from other computers, set
-`DEMO_BIND` in `.env` (and `DEMO_HOST` for the printed URLs), knowing that
+(`[server] insecure = true`).  To reach it from other computers, run
+`DEMO_BIND=0.0.0.0 ./deploy.sh` (or set `DEMO_BIND` in `.env`; `DEMO_HOST`
+sets the printed URLs), knowing that
 anyone who can reach the demo can then drive it.  See
 [docs/security.md](docs/security.md).
 

@@ -19,7 +19,7 @@ executor's bubblewrap can't run under emulation.  Set `ZUUL_IMAGE` /
 Ports: 8080 demo UI, 8090 git-stream, 9000 Zuul web, 8000 logs, all
 published on 127.0.0.1 only: git-stream runs with `insecure = true` (an open
 stream), so the demo must not be reachable from the network.  `DEMO_BIND`
-in `.env` changes that; `DEMO_HOST` then controls the address printed for
+changes that (`DEMO_BIND=0.0.0.0 ./deploy.sh` for one run, or in `.env`); `DEMO_HOST` then controls the address printed for
 other computers.
 
 Secrets: `deploy.sh` creates `.env` from `.env.example` with random values
