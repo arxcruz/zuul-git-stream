@@ -175,15 +175,45 @@ Run from the repo root, with the venv from above (`.venv/bin/python`).
 
 | Purpose | Command |
 |---------|---------|
-| Fast loop (whole suite, skipping the slow tests) | `.venv/bin/python -m pytest -m "not slow" -x -q` (about 1 minute; includes the contract tests) |
+| **Fast loop** (whole suite in parallel, skipping the slow tests) | `.venv/bin/python -m pytest -n auto -m "not slow" -x -q` (about 10 seconds on 18 cores; includes the contract tests) |
+| Whole suite in parallel, slow tests included | `.venv/bin/python -m pytest -n auto -q` (about 16 seconds; 320 passed, 27 xfailed) |
+| Fast loop, serial | `.venv/bin/python -m pytest -m "not slow" -x -q` (about 1 minute; readable output, exact `-x`, for debugging) |
 | Narrower loop | the tests for the area you're changing (e.g. `.venv/bin/python -m pytest tests/test_stream_*.py -q`), plus the contract tests below (about 7 seconds) |
 | One test | `.venv/bin/python -m pytest tests/test_stream_apply.py::test_the_sender_is_the_default_author` |
 | Contract tests only | `.venv/bin/python -m pytest -m contract` |
 | Lint | `.venv/bin/python -m ruff check .` |
-| **Full gate** | `scripts/check.sh` (ruff, then every test, slow ones included; ~1.5 min) |
+| **Full gate** | `scripts/check.sh` (ruff, then every test serially, slow ones included; ~1.5 min) |
 
 **Only the full gate counts for "done".**  The fast loop, the narrower loop
 and a single test are for iterating; never report work finished on them.
+
+**pytest-xdist is a test-only dependency.**  It is in the `test` extra of
+`pyproject.toml` (so the setup command above installs it) and nothing in
+`git_stream/` uses it; the service stays standard library only.  `-n auto`
+starts one worker process per core, and each imports Zuul, so on a small
+machine use `-n 4` (about 34 seconds for the whole suite).  The gate,
+`scripts/check.sh`, stays serial on purpose: it decides "done", and a
+timing-sensitive test is least likely to flake when it has the machine to
+itself.
+
+**New tests must be safe to run in parallel.**  Workers run tests at the
+same time on the same machine and checkout, so a test must not share a
+file, a port or a database with any other test:
+
+- use `tmp_path` (or `make_forge` / `Running`, which do) for every data
+  directory, SQLite file and repository; never a fixed path, and never
+  write into the repository tree;
+- bind servers to port 0 and read the port back, as `tests/conftest.py`
+  does; never a fixed port;
+- don't change process-wide state (environment variables, module globals,
+  the working directory) without restoring it; use `monkeypatch`, or a
+  subprocess as the proxy test in `tests/test_callbacks.py` does;
+- don't depend on the order tests run in or on another test's leftovers.
+
+A test that passes alone and fails under `-n auto` is sharing something:
+fix the test, don't drop `-n`.  The suite was run 10 times in a row with
+`-n auto` (all green, 320 passed and 27 xfailed each time) when this was
+added.
 
 Tests marked `slow` (registered in `pyproject.toml`) are the ones that take
 about a second or more because they wait on purpose: timeouts, retry

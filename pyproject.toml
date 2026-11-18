@@ -12,7 +12,9 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest", "requests"]
+# pytest-xdist is for running the tests in parallel (pytest -n auto); the
+# service itself needs nothing but the standard library.
+test = ["pytest", "pytest-xdist", "requests"]
 # Pinned so a ruff release can't turn CI red by itself.
 lint = ["ruff==0.17.5"]
 
