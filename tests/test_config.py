@@ -87,6 +87,12 @@ def test_command_line(tmp_path, monkeypatch):
         parse_args(['--config', str(tmp_path / 'missing.toml')])
 
 
+def test_insecure_on_the_command_line(monkeypatch):
+    monkeypatch.delenv('GIT_STREAM_CONFIG', raising=False)
+    assert parse_args([])['server']['insecure'] is False
+    assert parse_args(['--insecure'])['server']['insecure'] is True
+
+
 def test_request_limits(tmp_path):
     s = config.load(environ={})
     assert s['server']['max_body'] == 10 * 1024 * 1024

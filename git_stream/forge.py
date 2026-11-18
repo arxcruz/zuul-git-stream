@@ -234,12 +234,14 @@ def _load_store(data_dir):
 
 class Forge:
     def __init__(self, data_dir, baseurl, emit=None, users=None,
-                 stream_tokens=None, report_users=()):
+                 stream_tokens=None, report_users=(), insecure=False):
         """emit(payload) is called with every webhook payload, in order.
 
-        users maps API tokens to user names; with none configured, any
-        token is accepted and acts as the user "zuul".  stream_tokens does
-        the same for POST /api/stream senders.  report_users are the names
+        users maps API tokens to user names; stream_tokens maps senders to
+        theirs for POST /api/stream.  With none configured, writes and the
+        stream are refused, unless insecure is set: then any API token is
+        accepted and acts as the user "zuul", and the stream is open.
+        Configured tokens are always enforced.  report_users are the names
         Zuul reports under; an open stream may not send as them.
         """
         self.data_dir = data_dir
@@ -249,6 +251,7 @@ class Forge:
         self.users = users or {}
         self.stream_tokens = stream_tokens or {}
         self.report_users = set(report_users)
+        self.insecure = insecure
         self.lock = threading.RLock()
         os.makedirs(self.repo_root, exist_ok=True)
         self.store = _load_store(data_dir)
@@ -281,7 +284,7 @@ class Forge:
 
     def user_for_token(self, token):
         if not self.users:
-            return 'zuul'
+            return 'zuul' if self.insecure else None
         return self.users.get(token)
 
     def stream_user_for_token(self, token):
@@ -291,7 +294,7 @@ class Forge:
         token on the value side.
         """
         if not self.stream_tokens:
-            return 'git-stream'
+            return 'git-stream' if self.insecure else None
         if token is None:
             return None
         for user, tok in self.stream_tokens.items():

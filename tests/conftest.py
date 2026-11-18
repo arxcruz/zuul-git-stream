@@ -32,13 +32,12 @@ class Running:
     """A forge served on a free local port, recording its webhooks."""
 
     def __init__(self, data_dir, stream_tokens=None, report_users=None,
-                 users=None, insecure=None, **serve_options):
+                 users=None, insecure=True, **serve_options):
         self.hooks = []
         extra = {}
         if report_users is not None:
             extra['report_users'] = report_users
-        if insecure is not None:
-            extra['insecure'] = insecure
+        extra['insecure'] = insecure
         # users=None means the usual one token; pass {} for "none configured".
         self.forge = Forge(str(data_dir), 'http://placeholder',
                            emit=self.hooks.append,

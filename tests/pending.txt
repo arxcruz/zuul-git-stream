@@ -24,21 +24,6 @@ tests/test_server_limits.py::test_an_idle_keep_alive_connection_is_closed
 tests/test_server_limits.py::test_a_slow_but_live_sender_is_not_cut_off
 tests/test_server_limits.py::test_one_stalled_client_does_not_block_others
 
-# group: secure by default
-tests/test_config.py::test_insecure_is_off_unless_asked_for
-tests/test_insecure_defaults.py::test_forge_is_secure_unless_told_otherwise
-tests/test_insecure_defaults.py::test_api_writes_are_refused_when_no_tokens_are_configured
-tests/test_insecure_defaults.py::test_configured_api_tokens_work_when_secure
-tests/test_insecure_defaults.py::test_stream_is_refused_when_no_tokens_are_configured
-tests/test_insecure_defaults.py::test_stream_with_tokens_works_when_secure
-tests/test_insecure_defaults.py::test_insecure_restores_any_token_and_the_open_stream
-tests/test_insecure_defaults.py::test_insecure_does_not_weaken_configured_tokens
-
-# group: config tokens
-tests/test_config.py::test_stream_tokens_come_from_the_file_and_the_environment
-tests/test_config.py::test_stream_tokens_from_the_environment_alone
-tests/test_config.py::test_settings_do_not_leak_from_one_load_to_the_next
-
 # group: branch and tag names
 tests/test_forge.py::test_push_rejects_invalid_branch_names
 tests/test_forge.py::test_open_mr_rejects_invalid_target_branch_names
@@ -73,14 +58,4 @@ tests/test_webhooks.py::test_a_dead_url_does_not_delay_a_healthy_one
 tests/test_webhooks.py::test_stopping_ends_every_delivery_thread_even_mid_retry
 
 # group: config wiring
-tests/test_wiring.py::test_api_tokens_map_each_token_to_its_user
-tests/test_wiring.py::test_stream_tokens_arrive
-tests/test_wiring.py::test_tokens_from_the_environment_arrive
-tests/test_wiring.py::test_report_users_come_from_the_retry_section
-tests/test_wiring.py::test_insecure_comes_from_the_server_section
-tests/test_wiring.py::test_startup_says_what_is_refused_and_how_to_allow_it
-tests/test_wiring.py::test_startup_warns_loudly_about_insecure_mode
-tests/test_wiring.py::test_a_fully_configured_forge_starts_quietly
-tests/test_wiring.py::test_webhook_settings_reach_the_sender
-tests/test_wiring.py::test_retry_settings_reach_the_policy
 tests/test_wiring.py::test_request_limits_reach_the_server

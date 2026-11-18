@@ -72,12 +72,15 @@ def parse_args(argv=None):
                         help='POST escalations here (repeatable)')
     parser.add_argument('--report-user', action='append', metavar='USER',
                         help="whose comments are Zuul's reports (repeatable)")
+    parser.add_argument('--insecure', action='store_true', default=None,
+                        help='demos only: with no tokens, accept any API '
+                        'token and an open stream')
     parser.add_argument('--debug', action='store_true', default=None)
     args = parser.parse_args(argv)
     overrides = {
         'server': {'listen': args.listen, 'base_url': args.base_url,
                    'data': args.data, 'seed': args.seed,
-                   'debug': args.debug},
+                   'debug': args.debug, 'insecure': args.insecure},
         'webhooks': {'urls': args.webhook, 'token': args.webhook_token},
         'retry': {'zuul_api': args.zuul_api,
                   'max_attempts': args.max_attempts,
@@ -94,54 +97,97 @@ def parse_args(argv=None):
         parser.exit(2, 'git-stream: %s\n' % e)
 
 
-def main(argv=None):
-    settings = parse_args(argv)
-    server_cfg, hooks, retry, metrics_cfg = (
-        settings['server'], settings['webhooks'], settings['retry'],
-        settings['metrics'])
-    log = logging.getLogger('git_stream')
-    logging.basicConfig(
-        level=logging.DEBUG if server_cfg['debug'] else logging.INFO,
-        format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+def listen_address(settings):
+    """(host, port, base_url) from [server] listen and base_url."""
+    server_cfg = settings['server']
     host, _, port = server_cfg['listen'].rpartition(':')
     base_url = server_cfg['base_url'] or 'http://%s:%s' % (
         'localhost' if host in ('', '0.0.0.0') else host, port)
+    return host or '0.0.0.0', int(port), base_url
+
+
+def build_forge(settings, emit=None):
+    """The forge, with its tokens; says at startup what is refused."""
+    log = logging.getLogger('git_stream')
+    server_cfg = settings['server']
+    insecure = server_cfg['insecure']
     users = {token: user for user, token in settings['api_tokens'].items()}
     stream_tokens = dict(settings['stream']['tokens'])
     if stream_tokens:
         log.info('POST /api/stream requires a token (%s)',
                  ', '.join(stream_tokens))
+    if insecure:
+        log.warning('Running in insecure mode: with no tokens, any API token '
+                    'is accepted and POST /api/stream is open.  Never use '
+                    'this in production.')
     else:
-        log.warning('POST /api/stream is open; set [stream] tokens to '
-                    'require one')
+        if not users:
+            log.warning('API writes are refused: no [api_tokens] are '
+                        'configured; add them, or set [server] insecure = '
+                        'true for a demo')
+        if not stream_tokens:
+            log.warning('POST /api/stream is refused: no [stream] tokens '
+                        'are configured; add them, or set [server] insecure '
+                        '= true for a demo')
+    return Forge(server_cfg['data'], listen_address(settings)[2], emit=emit,
+                 users=users, stream_tokens=stream_tokens,
+                 report_users=settings['retry']['report_users'],
+                 insecure=insecure)
+
+
+def build_sender(settings, metrics):
+    hooks = settings['webhooks']
+    return WebhookSender(hooks['urls'], hooks['token'],
+                         max_backoff=hooks['max_backoff'], metrics=metrics)
+
+
+def build_policy(settings, forge, metrics):
+    """The retry policy, or None without a Zuul API URL."""
+    retry = settings['retry']
+    if not retry['zuul_api']:
+        return None
+    return RetryPolicy(
+        forge, retry['zuul_api'], retry['max_attempts'],
+        retry['escalate'], retry['report_users'],
+        failed_re=retry['failed_pattern'], author=retry['author'],
+        settle=retry['settle'], metrics=metrics)
+
+
+def build_server(settings, forge, sender, metrics):
+    host, port, _ = listen_address(settings)
+    return serve(forge, sender, host, port, metrics=metrics)
+
+
+def main(argv=None):
+    settings = parse_args(argv)
+    server_cfg, hooks, retry, metrics_cfg = (
+        settings['server'], settings['webhooks'], settings['retry'],
+        settings['metrics'])
+    logging.basicConfig(
+        level=logging.DEBUG if server_cfg['debug'] else logging.INFO,
+        format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+    log = logging.getLogger('git_stream')
 
     metrics = None
     if metrics_cfg['path']:
         metrics = Metrics(metrics_cfg['path'])
-    sender = WebhookSender(hooks['urls'], hooks['token'],
-                           max_backoff=hooks['max_backoff'], metrics=metrics)
+    sender = build_sender(settings, metrics)
     observers = [sender.emit]
-    forge = Forge(server_cfg['data'], base_url, users=users,
-                  stream_tokens=stream_tokens,
-                  report_users=retry['report_users'],
-                  emit=lambda payload: [f(payload) for f in observers])
-    if retry['zuul_api']:
-        policy = RetryPolicy(
-            forge, retry['zuul_api'], retry['max_attempts'],
-            retry['escalate'], retry['report_users'],
-            failed_re=retry['failed_pattern'], author=retry['author'],
-            settle=retry['settle'], metrics=metrics)
+    forge = build_forge(
+        settings, emit=lambda payload: [f(payload) for f in observers])
+    policy = build_policy(settings, forge, metrics)
+    if policy:
         observers.append(policy.observe)
         policy.start()
     if server_cfg['seed']:
         seed(forge, server_cfg['seed'])
     sender.start()
 
-    server = serve(forge, sender, host or '0.0.0.0', int(port), metrics=metrics)
+    server = build_server(settings, forge, sender, metrics)
     log.info('Serving on %s (base URL %s); webhooks to %s',
-             server_cfg['listen'], base_url,
+             server_cfg['listen'], listen_address(settings)[2],
              ', '.join(hooks['urls']) or 'nobody')
-    if retry['zuul_api']:
+    if policy:
         log.info('Retrying failed jobs up to %d runs (Zuul API %s)',
                  retry['max_attempts'], retry['zuul_api'])
     server.serve_forever()

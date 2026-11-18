@@ -8,11 +8,14 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   base_url = "http://git-stream:8090"   # how Zuul reaches git-stream
   data = "/srv/git-stream"              # repos/ + state.db (forge) + metrics.db
   seed = "/repos"                       # create projects from these dirs
+  insecure = false                      # true: with no tokens, accept any
+                                        # API token and an open stream
+                                        # (demos only; never in production)
 
-  [api_tokens]                          # user = token; tokens for writes
-  zuul = "secret-api-token"
+  [api_tokens]                          # user = token; tokens for writes;
+  zuul = "secret-api-token"             # none: writes are refused
 
-  [stream]                              # POST /api/stream; open unless a
+  [stream.tokens]                       # POST /api/stream; refused unless a
                                         # token is set.  A message acts as
                                         # its token's user; it can't claim
                                         # another "author"
@@ -36,6 +39,10 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   [metrics]                             # what the jobs did, in a database
   path = ""                             # SQLite file ("" = <data>/metrics.db)
   build_url = ""                        # prefix for build links; "" = none
+
+Tokens can also come from the environment, as "user=token user=token":
+GIT_STREAM_API_TOKENS and GIT_STREAM_STREAM_TOKENS, so they need not be in
+the file.
 """
 
 import os
@@ -51,11 +58,13 @@ SCHEMA = {
         'data': ('/srv/git-stream', str, 'GIT_STREAM_DATA'),
         'seed': (None, str, 'GIT_STREAM_SEED'),
         'debug': (False, bool, 'GIT_STREAM_DEBUG'),
+        # Without it, no [api_tokens] means REST writes are refused and no
+        # [stream] tokens means POST /api/stream is refused.
+        'insecure': (False, bool, 'GIT_STREAM_INSECURE'),
     },
     'api_tokens': {},
-    # user = token; POST /api/stream requires one when any are configured.
-    # With none, the stream is open (fine for a demo; set tokens in
-    # production so only the announcing system can drive the forge).
+    # user = token; POST /api/stream requires one.  With none it is refused
+    # unless [server] insecure is set.
     'stream': {
         'tokens': ({}, dict, 'GIT_STREAM_STREAM_TOKENS'),
     },
@@ -123,7 +132,8 @@ def load(path=None, environ=None, overrides=None):
     {section: {option: value}}, with None meaning "not given".
     """
     environ = os.environ if environ is None else environ
-    settings = {section: {name: (list(d) if isinstance(d, list) else d)
+    settings = {section: {name: (type(d)(d) if isinstance(d, (list, dict))
+                                 else d)
                           for name, (d, _, _) in options.items()}
                 for section, options in SCHEMA.items()}
 
@@ -155,16 +165,22 @@ def load(path=None, environ=None, overrides=None):
 
     for section, options in SCHEMA.items():
         for name, (_, kind, var) in options.items():
+            if kind is dict:
+                continue  # "user=token ..." pairs, mapped below
             if environ.get(var) is not None:
                 settings[section][name] = _convert(environ[var], kind, var)
     # Map tokens from the environment: "user=token user=token".
-    for section, var in (('api_tokens', 'GIT_STREAM_API_TOKENS'),
-                         ('git', 'GIT_STREAM_GIT_TOKENS'),
-                         ('stream', 'GIT_STREAM_STREAM_TOKENS')):
+    for section, name, var in (
+            ('api_tokens', None, 'GIT_STREAM_API_TOKENS'),
+            ('git', None, 'GIT_STREAM_GIT_TOKENS'),
+            ('stream', 'tokens', 'GIT_STREAM_STREAM_TOKENS')):
         for item in (environ.get(var) or '').split():
             user, _, token = item.partition('=')
             if user and token:
-                settings[section][user] = token
+                tokens = settings[section]
+                if name:
+                    tokens = tokens[name]
+                tokens[user] = token
 
     for section, values in (overrides or {}).items():
         for name, value in values.items():

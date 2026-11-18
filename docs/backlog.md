@@ -33,12 +33,6 @@ those first, and treat a failing test there as possibly a test bug.
   silent for `[server] read_timeout` (30 s) gets 408, or is dropped if it
   never finished the request line or is idle on keep-alive.  Needs
   `serve(max_body=, read_timeout=)`.
-- **secure by default** (`tests/test_insecure_defaults.py`,
-  `test_insecure_is_off_unless_asked_for`): no `[api_tokens]` means REST
-  writes are 401 "no API tokens are configured; add [api_tokens]"; no stream
-  tokens means `POST /api/stream` is 401 "no stream tokens are configured";
-  `[server] insecure = true` restores today's behavior without weakening
-  configured tokens.  Needs `Forge(insecure=)`.
 - **webhook delivery** (`tests/test_webhooks.py`): one ordered queue per URL,
   so a dead URL never delays another (and `stop()` ends every thread); no
   `X-Gitlab-Token` header when the token is empty.  A 4xx stays "kept as
@@ -60,18 +54,10 @@ those first, and treat a failing test there as possibly a test bug.
   need the default branch (push without `branch`, tag without `rev`, open_mr
   without `target_branch`) are 409 "project 'x' has an invalid default
   branch '-x'; recreate it"; everything else keeps working.
-- **config wiring** (`tests/test_wiring.py`): `build_forge(settings,
-  emit=None)`, `build_sender(settings, metrics)`, `build_policy(settings,
-  forge, metrics)` and `build_server(settings, forge, sender, metrics)` in
-  `git_stream/__main__.py`, used by `main()`, so tokens, `report_users`,
-  `insecure`, the retry and webhook settings and the request limits are shown
-  to reach the objects `main()` builds.  Startup warnings: refused API writes
-  and stream (with the fix named), a loud "insecure mode ... production"
-  warning, silence when fully configured.
-- **config tokens** (`tests/test_config.py`): `GIT_STREAM_STREAM_TOKENS` must
-  work (it crashes config loading today with "expected dict", though
-  `security.md` documents it) and `config.load` must not share its dict
-  defaults between loads (copy them: `dict(d)`).
+- **config wiring** (`tests/test_wiring.py`): only
+  `test_request_limits_reach_the_server` is left; `build_server` in
+  `git_stream/__main__.py` must pass `[server] max_body` and `read_timeout`
+  to `serve` (with the request-limits work above).
 - **malformed requests** (`tests/test_server_input.py`): bad JSON bodies,
   non-numeric `page`, `per_page` or merge request id, and bad chunk framing on
   the REST API are 4xx, not a 500 that leaks the exception text.
@@ -93,19 +79,13 @@ those first, and treat a failing test there as possibly a test bug.
 
 ## 2. Follow-ups that come with those fixes
 
-- When secure-by-default lands, `Running` in `tests/conftest.py` must default
-  to `insecure=True`: existing tests rely on an open stream and any API token.
 - Sync the docs with each fix, as `AGENTS.md` requires: README, the
   `git_stream/config.py` docstring, `devenv/git-stream.toml`,
-  `docs/security.md`, `docs/zuul-contract.md`.  The demo's unauthenticated
-  `curl` examples (README, `docs/demo.md`, `AGENTS.md`) change once the stream
-  is no longer open by default: the demo needs `insecure = true` or tokens.
-- Demo secrets are still in the repo (`devenv/compose.yaml`,
-  `devenv/etc_zuul/zuul.conf`, `devenv/git-stream.toml`): move them to the
-  environment, as `docs/security.md` step 1 plans.
+  `docs/security.md`, `docs/zuul-contract.md`.
 - `main()` itself is still untested glue (ordering: seeding happens before the
   webhook sender starts; the retry policy observes the forge's webhooks).
-  Everything it builds goes through the `build_*` functions above.
+  Everything it builds goes through the `build_*` functions in
+  `git_stream/__main__.py`.
 - `GIT_STREAM_GIT_TOKENS` is read by `config.load` but there is no `git`
   section, so setting it would fail; git tokens are not wired anywhere.
   Either remove the variable or implement git tokens.

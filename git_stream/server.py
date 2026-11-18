@@ -26,6 +26,11 @@ from git_stream.forge import ForgeError
 log = logging.getLogger('git_stream.server')
 
 API = '/api/v4/projects'
+NO_API_TOKENS = ('no API tokens are configured, so writes are refused; add '
+                 '[api_tokens] (or set [server] insecure = true for a demo)')
+NO_STREAM_TOKENS = ('no stream tokens are configured, so the stream is '
+                    'refused; add [stream] tokens (or set [server] insecure '
+                    '= true for a demo)')
 GIT_RE = re.compile(r'^/(?P<repo>.+?\.git)/(?P<rest>info/refs|'
                     r'git-upload-pack|git-receive-pack|HEAD)$')
 MR_PAGE_RE = re.compile(r'^/(?P<project>.+?)/(?:-/)?merge_requests/'
@@ -120,7 +125,8 @@ def make_handler():
 
         def _stream_user(self):
             """The sender a stream token names, or None.  With no stream
-            tokens configured, every sender is the git-stream user."""
+            tokens configured, that is the git-stream user in insecure mode
+            and nobody otherwise."""
             auth = self.headers.get('Authorization', '')
             if auth.startswith('Bearer '):
                 token = auth[len('Bearer '):]
@@ -173,6 +179,8 @@ def make_handler():
             if self.command != 'GET':
                 by = self._user()
                 if by is None:
+                    if not self.forge.users:
+                        return self._error(401, NO_API_TOKENS)
                     return self._error(401, '401 Unauthorized')
 
             if not rest:
@@ -277,6 +285,8 @@ def make_handler():
                 return self._error(404, '404 Not Found')
             sender = self._stream_user()
             if sender is None:
+                if not self.forge.stream_tokens:
+                    return self._error(401, NO_STREAM_TOKENS)
                 return self._error(401, '401 Unauthorized')
             try:
                 msgs = json.loads(self._body() or b'null')
