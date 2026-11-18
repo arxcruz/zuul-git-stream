@@ -97,6 +97,21 @@ section 1.
   be a 4xx where the cause is the client's (branch and tag names and an
   existing tag are done; other causes remain).  Its text, which includes git's arguments and stderr, no
   longer reaches the client.
+- Found reviewing branch and tag name validation (all unspecified):
+  - Falsy non-string values (`0`, `false`, `[]`) for `branch`, `target_branch`
+    and `tag`'s `rev` fall back to the default branch silently, because the
+    handlers use `x or default`; only truthy values are validated.  A decision
+    is needed: keep the fallback, or reject any explicit non-string.
+  - A tag that already exists but does not peel to a commit (for example one
+    pointing at a tree or blob) is not seen by the existing-tag check, which
+    uses `Repo.resolve` (`^{commit}`), so tagging it again is a 500 (from
+    review, not reproduced).
+  - Ref name collisions are a 500: with tag `v1` present, tag `v1/x` (or the
+    other way round) cannot be created, and the same goes for branches.  git
+    refuses the file/directory clash and the `GitError` is uncaught.
+  - A non-string `rev` on `tag` (for example `5`) is a 500: `Repo.resolve`
+    calls `ref.startswith`.  The same holds for a non-string `start` on
+    `push`.
 
 - HTML pages are built with string concatenation and `html.escape`; not every
   call site was reviewed, so one missed `e()` could be stored XSS from a note
