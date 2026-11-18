@@ -179,3 +179,64 @@ def test_a_slow_but_live_sender_is_not_cut_off(limited, conn):
 def test_one_stalled_client_does_not_block_others(limited, conn):
     conn.send(head(length=100) + b'x')
     assert health(limited) == 200
+
+
+# -- what the limits leave behind ----------------------------------------------
+
+def test_a_refusal_closes_the_connection(limited, conn):
+    """The rest of the refused body is still in the stream; keep-alive
+    would read it as the next request."""
+    conn.send(head(length=LIMIT + 1))
+    assert conn.response()[0] == 413
+    assert conn.closed()
+
+
+@pytest.mark.parametrize('length', [b'abc', b'-1', b'1_0', b' 5 5'])
+def test_an_invalid_content_length_is_a_client_error(limited, conn, length):
+    conn.send(b'POST /api/stream HTTP/1.1\r\nHost: x\r\n'
+              b'Content-Type: application/json\r\n'
+              b'Content-Length: ' + length + b'\r\n\r\n')
+    status, body = conn.response()
+    assert status == 400
+    assert 'invalid Content-Length' in json.loads(body)['message']
+
+
+def test_a_trickling_body_hits_the_total_deadline(make_forge):
+    """One byte now and then never trips read_timeout; body_timeout does."""
+    import time
+    forge = make_forge(max_body=LIMIT, read_timeout=5, body_timeout=1)
+    c = Conn(forge)
+    try:
+        c.send(head(length=100))
+        start = time.monotonic()
+        status = None
+        while status is None and time.monotonic() - start < 4:
+            c.send(b'x')
+            c.sock.settimeout(0.3)
+            try:
+                status, body = c.response()
+            except socket.timeout:
+                continue
+            break
+        assert status == 408
+        assert 'timed out' in json.loads(body)['message']
+        assert time.monotonic() - start < 3
+    finally:
+        c.close()
+
+
+def test_a_stalled_body_does_not_hold_the_forge_lock(make_forge):
+    """Writes take the forge's lock; reading a body must happen before."""
+    import time
+    forge = make_forge(max_body=LIMIT, read_timeout=30)
+    forge.send({'action': 'create_project', 'project': 'bundles',
+                'files': {'README.md': 'x\n'}})
+    stalled = Conn(forge)
+    try:
+        stalled.send(head(length=100) + b'x')
+        start = time.monotonic()
+        forge.send({'action': 'open_mr', 'project': 'bundles',
+                    'title': 'T', 'key': 'k', 'files': {'a.yaml': 'a: 1\n'}})
+        assert time.monotonic() - start < 5
+    finally:
+        stalled.close()

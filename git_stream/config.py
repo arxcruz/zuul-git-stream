@@ -11,6 +11,9 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   insecure = false                      # true: with no tokens, accept any
                                         # API token and an open stream
                                         # (demos only; never in production)
+  max_body = 10485760                   # bytes; a larger body is a 413
+  read_timeout = 30                     # seconds of silence before a 408
+  body_timeout = 120                    # seconds to receive a whole body
 
   [api_tokens]                          # user = token; tokens for writes;
   zuul = "secret-api-token"             # none: writes are refused
@@ -61,6 +64,12 @@ SCHEMA = {
         # Without it, no [api_tokens] means REST writes are refused and no
         # [stream] tokens means POST /api/stream is refused.
         'insecure': (False, bool, 'GIT_STREAM_INSECURE'),
+        # Request limits.  A body over max_body bytes is refused (413)
+        # without being read; a client silent for read_timeout seconds, or
+        # still sending its body after body_timeout, gets 408 and is dropped.
+        'max_body': (10 * 1024 * 1024, int, 'GIT_STREAM_MAX_BODY'),
+        'read_timeout': (30, int, 'GIT_STREAM_READ_TIMEOUT'),
+        'body_timeout': (120, int, 'GIT_STREAM_BODY_TIMEOUT'),
     },
     'api_tokens': {},
     # user = token; POST /api/stream requires one.  With none it is refused
@@ -186,4 +195,7 @@ def load(path=None, environ=None, overrides=None):
         for name, value in values.items():
             if value is not None:
                 settings[section][name] = value
+    for name in ('max_body', 'read_timeout', 'body_timeout'):
+        if settings['server'][name] < 1:
+            raise ConfigError('[server] %s must be at least 1' % name)
     return settings

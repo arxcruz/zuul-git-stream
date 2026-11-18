@@ -97,3 +97,55 @@ def test_git_upload_pack_is_still_served(forge):
                         '?service=git-upload-pack', token=None)
     assert status == 200
     assert body.startswith('001e# service=git-upload-pack')
+
+
+# -- what an error says --------------------------------------------------------
+
+def test_a_server_error_does_not_say_what_went_wrong(forge, mr):
+    """The exception goes to the log; the client gets a fixed message."""
+    def boom(*args):
+        raise RuntimeError('secret detail at /srv/git-stream/x')
+    forge.forge.notes = boom
+    status, body = call(forge, mr + '/notes')
+    assert status == 500
+    assert 'RuntimeError' not in body and 'secret detail' not in body
+    assert 'internal error' in body
+
+
+@pytest.mark.parametrize('body', [b'{nope', b'null', b'"text"', b'42'])
+def test_a_bad_stream_body_is_a_client_error_that_says_little(forge, body):
+    status, text = call(forge, '/api/stream', 'POST', body)
+    assert 400 <= status < 500, (status, text)
+    assert 'Expecting' not in text and 'Error' not in text
+
+
+@pytest.mark.parametrize('body', [b'{nope', b'[1]', b'null'])
+def test_a_bad_api_body_does_not_leak_the_parser(forge, mr, body):
+    status, text = call(forge, mr + '/notes', 'POST', body)
+    assert status == 400
+    assert 'Expecting' not in text and 'Error' not in text
+
+
+def test_a_body_that_is_not_utf8_is_a_client_error(forge, mr):
+    req = urllib.request.Request(
+        forge.url + mr + '/notes', data=b'body=\xff\xfe', method='POST',
+        headers={'Authorization': 'Bearer ' + API_TOKEN,
+                 'Content-Type': 'application/x-www-form-urlencoded'})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req)
+    assert e.value.code == 400
+
+
+@pytest.mark.parametrize('query', [
+    'repository/branches?page=0', 'repository/branches?per_page=-1',
+    'merge_requests?per_page=0',
+    'merge_requests?per_page=99999999999999999999999'])
+def test_paging_must_be_a_positive_number(forge, query):
+    status, body = call(forge, '/api/v4/projects/bundles/' + query)
+    assert status == 400, (status, body)
+
+
+def test_a_huge_merge_request_id_is_a_client_error(forge):
+    status, body = call(forge, '/api/v4/projects/bundles/merge_requests/'
+                        + '9' * 5000)
+    assert 400 <= status < 500, (status, body)

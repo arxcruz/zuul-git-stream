@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 import urllib.parse
 import http.server
 
@@ -31,16 +32,37 @@ NO_API_TOKENS = ('no API tokens are configured, so writes are refused; add '
 NO_STREAM_TOKENS = ('no stream tokens are configured, so the stream is '
                     'refused; add [stream] tokens (or set [server] insecure '
                     '= true for a demo)')
+# Request limits (see [server] in config.py): a body over MAX_BODY bytes is
+# refused, a client silent for READ_TIMEOUT seconds is dropped, and a whole
+# body must arrive within BODY_TIMEOUT seconds however steadily it trickles.
+MAX_BODY = 10 * 1024 * 1024
+READ_TIMEOUT = 30
+BODY_TIMEOUT = 120
+# A chunk size line is hex digits and an optional ";extension"; a line
+# longer than this is not one.
+CHUNK_LINE_MAX = 128
+CHUNK_RE = re.compile(rb'([0-9a-fA-F]+)(?:;[^\r\n]*)?')
 GIT_RE = re.compile(r'^/(?P<repo>.+?\.git)/(?P<rest>info/refs|'
                     r'git-upload-pack|git-receive-pack|HEAD)$')
 MR_PAGE_RE = re.compile(r'^/(?P<project>.+?)/(?:-/)?merge_requests/'
-                        r'(?P<iid>\d+)/?$')
+                        r'(?P<iid>[0-9]{1,9})/?$')
 
 
-def make_handler():
+def _number(raw, name):
+    """A positive integer from a request, or a 400 that names it."""
+    if not re.fullmatch(r'[0-9]{1,9}', str(raw)) or int(raw) < 1:
+        raise ForgeError('%s must be a positive number' % name)
+    return int(raw)
+
+
+def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
+                 body_timeout=BODY_TIMEOUT):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
         server_version = 'git-stream'
+        # Applied to the socket: a silent client is dropped while waiting
+        # for a request line or between keep-alive requests.
+        timeout = read_timeout
 
         def log_message(self, fmt, *args):
             log.debug('%s %s', self.address_string(), fmt % args)
@@ -78,27 +100,87 @@ def make_handler():
         def _error(self, code, message):
             self._json({'message': message}, code)
 
-        def _body(self):
-            if 'chunked' in self.headers.get('Transfer-Encoding', ''):
-                data = b''
-                while True:
-                    line = self.rfile.readline()
-                    if not line:
-                        return data  # connection closed mid-body
-                    size = int(line.split(b';')[0] or 0, 16)
-                    if size == 0:
-                        self.rfile.readline()
-                        return data
-                    data += self.rfile.read(size)
-                    self.rfile.readline()
-            length = self.headers.get('Content-Length')
+        # A body is read once, before the forge's lock is taken, so a slow
+        # client can't hold it.  Every refusal closes the connection: the
+        # rest of the body is still in the stream.
+
+        def _fail(self, status, message):
+            self.close_connection = True
+            raise ForgeError(message, status)
+
+        def _read(self, size, deadline):
+            """size bytes of the body (fewer if the client closes).  Each
+            receive waits at most read_timeout, and none past the deadline."""
+            data = bytearray()
+            while len(data) < size:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    self._fail(408, 'request timed out')
+                self.connection.settimeout(min(read_timeout, left))
+                try:
+                    more = self.rfile.read1(min(size - len(data), 65536))
+                except TimeoutError:
+                    self._fail(408, 'request timed out')
+                if not more:
+                    break
+                data += more
+            return bytes(data)
+
+        def _readline(self, deadline):
+            line = b''
+            while not line.endswith(b'\n'):
+                if len(line) >= CHUNK_LINE_MAX:
+                    self._fail(400, 'invalid chunked body')
+                byte = self._read(1, deadline)
+                if not byte:
+                    break
+                line += byte
+            return line
+
+        def _read_chunked(self, deadline):
+            data = bytearray()
+            while True:
+                line = self._readline(deadline)
+                if not line:
+                    return bytes(data)  # connection closed mid-body
+                m = CHUNK_RE.fullmatch(line.rstrip(b'\r\n'))
+                if not m:
+                    self._fail(400, 'invalid chunked body: bad chunk size')
+                size = int(m.group(1), 16)
+                if len(data) + size > max_body:
+                    self._fail(413, self._too_large())
+                if size == 0:
+                    while self._readline(deadline).strip():
+                        pass  # trailers
+                    return bytes(data)
+                data += self._read(size, deadline)
+                if self._readline(deadline).strip():
+                    self._fail(400, 'invalid chunked body: bad chunk end')
+
+        def _too_large(self):
+            return 'request body too large: the limit is %d bytes' % max_body
+
+        def _read_body(self):
+            deadline = time.monotonic() + body_timeout
             try:
-                length = int(length) if length is not None else 0
-            except ValueError:
-                length = 0
-            if length <= 0:
-                return b''
-            return self.rfile.read(length)
+                if 'chunked' in self.headers.get('Transfer-Encoding', ''):
+                    return self._read_chunked(deadline)
+                length = self.headers.get('Content-Length')
+                if length is None:
+                    return b''
+                if not re.fullmatch(r'[0-9]+', length):
+                    self._fail(400, 'invalid Content-Length')
+                if len(length) > 18 or int(length) > max_body:
+                    self._fail(413, self._too_large())
+                return self._read(int(length), deadline)
+            finally:
+                self.connection.settimeout(read_timeout)
+
+        def _body(self):
+            """The request body, bounded by max_body and body_timeout."""
+            if self._raw is None:
+                self._raw = self._read_body()
+            return self._raw
 
         def _params(self, query):
             """Request parameters: query string, form or JSON body."""
@@ -108,10 +190,20 @@ def make_handler():
                 body = self._body()
                 ctype = self.headers.get('Content-Type', '')
                 if body and 'json' in ctype:
-                    params.update(json.loads(body))
+                    try:
+                        parsed = json.loads(body)
+                    except ValueError:
+                        raise ForgeError('invalid JSON body')
+                    if not isinstance(parsed, dict):
+                        raise ForgeError('the JSON body must be an object')
+                    params.update(parsed)
                 elif body:
+                    try:
+                        text = body.decode('utf8')
+                    except UnicodeDecodeError:
+                        raise ForgeError('the body is not valid UTF-8')
                     params.update({k: v[-1] for k, v in urllib.parse.parse_qs(
-                        body.decode('utf8'), keep_blank_values=True).items()})
+                        text, keep_blank_values=True).items()})
             return params
 
         def _user(self):
@@ -139,7 +231,10 @@ def make_handler():
         def _dispatch(self):
             url = urllib.parse.urlsplit(self.path)
             path = url.path
+            self._raw = None
             try:
+                if self.command in ('POST', 'PUT'):
+                    self._body()
                 if path == '/health':
                     return self._json({'status': 'ok'})
                 m = GIT_RE.match(path)
@@ -157,9 +252,9 @@ def make_handler():
                 self._error(404, '404 Not Found')
             except ForgeError as e:
                 self._error(e.status, str(e))
-            except Exception as e:
+            except Exception:
                 log.exception('Error handling %s %s', self.command, self.path)
-                self._error(500, '%s: %s' % (type(e).__name__, e))
+                self._error(500, 'internal error')
 
         do_GET = do_POST = do_PUT = do_HEAD = _dispatch
 
@@ -199,7 +294,7 @@ def make_handler():
                 return self._error(404, '404 Not Found')
             if len(rest) == 1:
                 return self._list_mrs(p, params)
-            mr = self.forge.mr(p, int(rest[1]))
+            mr = self.forge.mr(p, _number(rest[1], 'the merge request id'))
             sub = rest[2] if len(rest) > 2 else None
             if self.command == 'GET':
                 if sub is None:
@@ -252,8 +347,8 @@ def make_handler():
                 if name not in branches:
                     return self._error(404, '404 Branch Not Found')
                 return self._json(self.forge.branch_json(p, name, branches[name]))
-            page = int(params.get('page', 1))
-            per_page = int(params.get('per_page', 20))
+            page = _number(params.get('page', 1), 'page')
+            per_page = _number(params.get('per_page', 20), 'per_page')
             names = sorted(branches)[(page - 1) * per_page:page * per_page]
             return self._json([self.forge.branch_json(p, n, branches[n])
                                for n in names])
@@ -263,7 +358,7 @@ def make_handler():
                 return self._error(405, '405 Method Not Allowed')
             state = params.get('state', 'all')
             mrs = sorted(p['mrs'].values(), key=lambda m: -m['iid'])
-            per_page = int(params.get('per_page', 20))
+            per_page = _number(params.get('per_page', 20), 'per_page')
             return self._json([self.forge.mr_json(p, m) for m in mrs
                                if state in ('all', m['state'])][:per_page])
 
@@ -290,8 +385,8 @@ def make_handler():
                 return self._error(401, '401 Unauthorized')
             try:
                 msgs = json.loads(self._body() or b'null')
-            except ValueError as e:
-                return self._error(400, 'invalid JSON: %s' % e)
+            except ValueError:
+                return self._error(400, 'invalid JSON body')
             if isinstance(msgs, list):
                 results = []
                 for msg in msgs:
@@ -311,7 +406,7 @@ def make_handler():
                 return self._send(403, 'This forge is read-only over git; '
                                       'send a "push" stream message instead.\n',
                                   'text/plain')
-            body = self._body() if self.command == 'POST' else b''
+            body = self._body() if self.command == 'POST' else b''  # cached
             env = dict(os.environ,
                        GIT_PROJECT_ROOT=self.forge.repo_root,
                        GIT_HTTP_EXPORT_ALL='1',
@@ -373,8 +468,9 @@ def make_handler():
     return Handler
 
 
-def serve(forge, sender, host, port, metrics=None):
-    handler = make_handler()
+def serve(forge, sender, host, port, metrics=None, max_body=MAX_BODY,
+          read_timeout=READ_TIMEOUT, body_timeout=BODY_TIMEOUT):
+    handler = make_handler(max_body, read_timeout, body_timeout)
     server = http.server.ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     server.forge = forge

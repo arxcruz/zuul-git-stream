@@ -9,21 +9,6 @@
 #
 # (The receive-pack cases are marked inline in tests/test_git_read_only.py.)
 
-# group: request limits
-tests/test_config.py::test_request_limits
-tests/test_server_limits.py::test_a_body_exactly_at_the_limit_is_accepted
-tests/test_server_limits.py::test_a_body_over_the_limit_is_refused
-tests/test_server_limits.py::test_a_declared_length_is_refused_before_the_body_is_read
-tests/test_server_limits.py::test_every_endpoint_that_reads_a_body_has_the_limit
-tests/test_server_limits.py::test_chunked_bodies_count_towards_the_limit
-tests/test_server_limits.py::test_a_huge_chunk_size_is_refused_before_it_is_read
-tests/test_server_limits.py::test_a_stalled_body_gets_408
-tests/test_server_limits.py::test_a_stalled_chunk_gets_408
-tests/test_server_limits.py::test_a_stalled_request_line_is_dropped
-tests/test_server_limits.py::test_an_idle_keep_alive_connection_is_closed
-tests/test_server_limits.py::test_a_slow_but_live_sender_is_not_cut_off
-tests/test_server_limits.py::test_one_stalled_client_does_not_block_others
-
 # group: branch and tag names
 tests/test_forge.py::test_push_rejects_invalid_branch_names
 tests/test_forge.py::test_open_mr_rejects_invalid_target_branch_names
@@ -44,18 +29,7 @@ tests/test_retry.py::test_a_lookup_for_an_outdated_version_gives_up_quietly
 tests/test_retry.py::test_a_dead_escalation_url_does_not_delay_other_retries
 tests/test_retry.py::test_the_outcome_of_each_escalation_notice_is_recorded
 
-# group: malformed requests
-tests/test_server_input.py::test_bad_json_bodies_are_client_errors
-tests/test_server_input.py::test_non_numeric_paging_is_a_client_error
-tests/test_server_input.py::test_non_numeric_merge_request_id_is_a_client_error
-tests/test_server_input.py::test_bad_chunked_framing_is_a_client_error[/api/v4/projects/bundles/merge_requests/1/notes-zz]
-tests/test_server_input.py::test_bad_chunked_framing_is_a_client_error[/api/v4/projects/bundles/merge_requests/1/notes--5]
-tests/test_server_input.py::test_bad_chunked_framing_is_a_client_error[/api/v4/projects/bundles/merge_requests/1/notes-]
-
 # group: webhook delivery
 tests/test_webhooks.py::test_no_token_means_no_token_header
 tests/test_webhooks.py::test_a_dead_url_does_not_delay_a_healthy_one
 tests/test_webhooks.py::test_stopping_ends_every_delivery_thread_even_mid_retry
-
-# group: config wiring
-tests/test_wiring.py::test_request_limits_reach_the_server

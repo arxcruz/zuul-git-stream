@@ -93,6 +93,14 @@ def test_insecure_on_the_command_line(monkeypatch):
     assert parse_args(['--insecure'])['server']['insecure'] is True
 
 
+@pytest.mark.parametrize('name', ['max_body', 'read_timeout',
+                                  'body_timeout'])
+def test_a_limit_below_one_is_refused(tmp_path, name):
+    path = write(tmp_path, '[server]\n%s = 0\n' % name)
+    with pytest.raises(config.ConfigError, match='%s must be at least 1' % name):
+        config.load(path, environ={})
+
+
 def test_request_limits(tmp_path):
     s = config.load(environ={})
     assert s['server']['max_body'] == 10 * 1024 * 1024

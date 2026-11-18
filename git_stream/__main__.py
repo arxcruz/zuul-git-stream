@@ -75,12 +75,21 @@ def parse_args(argv=None):
     parser.add_argument('--insecure', action='store_true', default=None,
                         help='demos only: with no tokens, accept any API '
                         'token and an open stream')
+    parser.add_argument('--max-body', type=int, metavar='BYTES',
+                        help='largest request body accepted')
+    parser.add_argument('--read-timeout', type=int, metavar='SECONDS',
+                        help='drop a client silent this long')
+    parser.add_argument('--body-timeout', type=int, metavar='SECONDS',
+                        help='longest a whole request body may take')
     parser.add_argument('--debug', action='store_true', default=None)
     args = parser.parse_args(argv)
     overrides = {
         'server': {'listen': args.listen, 'base_url': args.base_url,
                    'data': args.data, 'seed': args.seed,
-                   'debug': args.debug, 'insecure': args.insecure},
+                   'debug': args.debug, 'insecure': args.insecure,
+                   'max_body': args.max_body,
+                   'read_timeout': args.read_timeout,
+                   'body_timeout': args.body_timeout},
         'webhooks': {'urls': args.webhook, 'token': args.webhook_token},
         'retry': {'zuul_api': args.zuul_api,
                   'max_attempts': args.max_attempts,
@@ -155,7 +164,11 @@ def build_policy(settings, forge, metrics):
 
 def build_server(settings, forge, sender, metrics):
     host, port, _ = listen_address(settings)
-    return serve(forge, sender, host, port, metrics=metrics)
+    server_cfg = settings['server']
+    return serve(forge, sender, host, port, metrics=metrics,
+                 max_body=server_cfg['max_body'],
+                 read_timeout=server_cfg['read_timeout'],
+                 body_timeout=server_cfg['body_timeout'])
 
 
 def main(argv=None):
