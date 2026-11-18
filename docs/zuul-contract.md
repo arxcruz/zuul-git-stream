@@ -67,6 +67,17 @@ Validated by `X-Gitlab-Token`.  `object_kind` selects the handler:
 After a merge-request event, Zuul immediately GETs the MR, so state must
 be committed before the webhook is sent (it is: emit happens last).
 
+## What Zuul does not see
+
+An MR opened with a `callback_url` (README, "Callbacks") looks like any other
+to Zuul.  The `callback_url` is stored but never sent anywhere Zuul reads.
+The MR JSON the REST API returns has one extra field, `callback` (a list of
+what was sent to the announcer, or `null`), which Zuul's driver ignores, as
+it does the other non-GitLab fields (`stream_key`, `escalation`).  The
+webhooks carry no `callback` at all: `_hook_mr_attrs` removes it.
+`test_an_mr_with_a_callback_url_looks_the_same_to_zuul` drives Zuul's client
+and webhook parser against such an MR.
+
 ## Git
 
 - Zuul clones `<cloneurl>/<project>.git` over HTTP and fetches

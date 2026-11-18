@@ -52,6 +52,40 @@ says only `internal error`; the details are in the log.  What is not covered
 yet (request-line and header trickling, the `git http-backend` subprocess) is
 in `docs/backlog.md`.
 
+## Callbacks: git-stream POSTs to a URL the sender chooses
+
+`open_mr` may carry a `callback_url`, and git-stream then POSTs the outcome
+of the merge request to it (README, "Callbacks").  This is the one place
+where git-stream makes a request to an address a sender picked, so:
+
+- **Anyone allowed to use the stream can aim git-stream at any http(s)
+  host**, including addresses only git-stream can reach (SSRF).  There is no
+  allowlist yet (backlog).  Give `[stream] tokens` only to senders you trust,
+  and keep git-stream off networks it doesn't need.
+- **No authentication header** is sent, so a receiver can't tell a real
+  callback from a forged one.  Don't act on one without checking it with
+  the sender's own system.
+- **The URL is never echoed**: it may hold a secret in its query.  The merge
+  request JSON shows only the outcome, the sha, the time and `delivered` or
+  `failed: <cause>` (the URL is removed from the cause); the pages, the
+  escalation list and the webhooks to Zuul show none of it.  The URL is stored in `state.db`, so
+  protect that file like the tokens.
+- **Bounded and validated**: only `http` and `https` with a host pass, at
+  most 2048 characters, no whitespace or control characters (DEL included),
+  checked before anything is created.  One
+  attempt, redirects refused, the body is fixed JSON, and a hung receiver
+  can't delay Zuul or other merge requests.  The 10 second timeout applies to
+  each socket operation (connect, each read), not to the whole delivery, so a
+  receiver that sends a byte every few seconds can keep its thread for much
+  longer (backlog).
+- **No proxy**: `HTTP_PROXY`, `HTTPS_PROXY` and friends are ignored, so a
+  callback goes straight to its URL and can't be sent through a proxy that
+  was set up for something else.
+- Zuul never sees the URL.  The `callback` status list is in the merge
+  request JSON of the REST API (Zuul ignores it) but not in the webhooks;
+  see [zuul-contract.md](zuul-contract.md).  The pages don't show the
+  callback at all (backlog).
+
 ## The demo's secrets
 
 The demo runs with `insecure = true`, so it is protected by where it
@@ -140,6 +174,8 @@ Planned / deployment (one step each):
 
 ## Not done (later, from the roadmap)
 
+- Callbacks: an allowlist of URLs, an authentication header, retries and
+  durable delivery (see the backlog).
 - **Durable webhook and retry queues.**  The forge *state* is already in
   SQLite (`state.db`) and the metrics log is in `metrics.db`, but the
   *delivery* of webhooks (to Zuul) and the retry policy run in-process on a

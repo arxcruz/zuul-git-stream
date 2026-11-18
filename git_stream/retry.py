@@ -144,6 +144,8 @@ class RetryPolicy(threading.Thread):
             mr['escalated_sha'] = sha
             mr['escalation'] = event
             self.forge.save()
+            fields = {k: v for k, v in event.items() if k != 'event'}
+            self.forge.notify_outcome(p, mr, 'escalated', fields, sha=sha)
         if self.metrics is not None:
             self.metrics.record_escalation(event)
         log.warning('Escalating %s!%s: %s', project, iid,

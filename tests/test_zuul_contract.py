@@ -5,6 +5,7 @@ webhooks it emits to Zuul's GitlabEventConnector handlers, so a change
 that Zuul would not understand fails here rather than in a demo.
 """
 
+import json
 import re
 import types
 
@@ -46,8 +47,7 @@ def client(forge):
     return gitlab.GitlabAPIClient(forge.url, API_TOKEN, 60, False)
 
 
-@pytest.fixture
-def connector(forge):
+def parser_for(forge):
     """Zuul's webhook parser, with just enough of a connection under it."""
     conn = types.SimpleNamespace(
         event_queue=None, connection_name='gitlab',
@@ -60,6 +60,11 @@ def connector(forge):
         return connector.event_handler_mapping[payload['object_kind']](
             payload)
     return parse
+
+
+@pytest.fixture
+def connector(forge):
+    return parser_for(forge)
 
 
 def open_mr(forge, **kw):
@@ -81,6 +86,42 @@ def test_mr_as_read_by_zuul(forge, client):
     assert got['author']['username'] == 'git-stream'
     approvals = client.get_mr_approvals_status('bundles', mr['iid'])
     assert approvals['approved'] is False
+
+
+def test_an_mr_with_a_callback_url_looks_the_same_to_zuul(make_forge):
+    """callback_url is for the announcer: Zuul reads, reports, approves and
+    parses webhooks exactly as for any other MR, and never sees the URL."""
+    forge = make_forge(report_users=['zuul'])
+    forge.send({'action': 'create_project', 'project': 'bundles',
+                'files': {'README.md': 'bundles\n'}})
+    client = gitlab.GitlabAPIClient(forge.url, API_TOKEN, 60, False)
+    parse = parser_for(forge)
+    url = 'http://127.0.0.1:9/hook?token=s3cret-callback-token'
+    plain = open_mr(forge, key='plain')
+    mr = open_mr(forge, key='b-1', callback_url=url)
+
+    got, got_plain = (client.get_mr('bundles', m['iid']) for m in (mr, plain))
+    assert set(got) == set(got_plain)  # no field Zuul could trip over
+    assert got['diff_refs']['head_sha'] == got['sha'] == mr['sha']
+    assert got['state'] == 'opened'
+    assert got['merge_status'] == 'can_be_merged'
+
+    client.comment_mr('bundles', mr['iid'], 'Build succeeded.')
+    assert client.approve_mr('bundles', mr['iid'], mr['sha'])['approved']
+    assert client.approve_mr('bundles', mr['iid'], mr['sha']) is None
+    assert client.get_mr_approvals_status('bundles', mr['iid'])['approved']
+
+    kinds = set()
+    for hook in forge.hooks:
+        event = parse(hook)  # every webhook still parses
+        kinds.add(event.type)
+        text = json.dumps(hook)
+        assert 'callback' not in text and 's3cret' not in text
+    assert 'gl_merge_request' in kinds
+    approved = [parse(h) for h in forge.hooks_of('merge_request')
+                if h['object_attributes']['action'] == 'approved']
+    assert [e.action for e in approved] == ['approved']
+    assert 's3cret' not in json.dumps(got)
 
 
 def test_branches_as_read_by_zuul(forge, client):

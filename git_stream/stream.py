@@ -11,7 +11,7 @@ forge assigns, and a message "id" makes a resent message harmless.
   {"action": "tag", "project": "p", "tag": "v1", "rev": "master"}
   {"action": "open_mr", "project": "p", "key": "b-1", "title": "...",
    "description": "...", "files": {...}, "target_branch": "master",
-   "max_attempts": 3}
+   "max_attempts": 3, "callback_url": "https://announcer.example.com/hook"}
   {"action": "update_mr", "project": "p", "mr": "b-1", "files": {...},
    "title": "...", "description": "..."}
   {"action": "comment", "project": "p", "mr": "b-1", "note": "recheck"}
@@ -27,6 +27,12 @@ comes from the sender's token, not from the message:
 - on an open stream (no tokens) the sender is "git-stream" and "author"
   may be any name except the users the retry policy trusts as Zuul's own
   (`[retry] report_users`), which is a 403.
+
+A "callback_url" (an http or https URL of up to 2048 characters, else 400
+before anything is created) makes git-stream POST the final outcome of the
+merge request there: "passed" when Zuul approves it, "escalated" when the
+retries run out, each at most once per sha.  One attempt, in the background;
+a redelivered open_mr keeps the first URL.  See the README, "Callbacks".
 
 In "files", a null value deletes the file.  Branch and tag names must be ones
 git accepts (400 otherwise); tagging an existing name is a 409.
@@ -126,7 +132,8 @@ def _open_mr(forge, msg, by):
         target_branch=msg.get('target_branch'),
         message=msg.get('message'), key=msg.get('key'),
         labels=_labels(msg.get('labels')),
-        max_attempts=_int(msg, 'max_attempts'))
+        max_attempts=_int(msg, 'max_attempts'),
+        callback_url=msg.get('callback_url'))
 
 
 def _update_mr(forge, msg, by):

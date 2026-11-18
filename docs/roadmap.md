@@ -45,9 +45,10 @@ in [backlog.md](backlog.md); this list is the product and production roadmap.
 - **Jira adapter** (user wants it later): consume `[retry] escalate`
   POSTs and open/update a Jira issue; store the issue key back on the
   escalation (needs an API to attach it) and show it on the pages.
-- **Notify the announcing system** of outcomes (passed/approved,
-  escalated), e.g. a per-MR `callback_url` in `open_mr`, or generic
-  outgoing event subscriptions.
+- **Notify the announcing system** of outcomes: a per-MR `callback_url` is
+  done (README, "Callbacks"); what is left is generic outgoing event
+  subscriptions, and the hardening in the backlog (retries, durable
+  delivery, an auth header, an allowlist).
 - **Downstream pipelines on approval**: example Zuul config triggering
   e.g. package builds on `gl_merge_request` action `approved`, replacing
   timer pipelines.
