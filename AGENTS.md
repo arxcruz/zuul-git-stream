@@ -7,6 +7,7 @@ Read this first, then the doc that matches your task:
 |------|------|
 | Understand the design | [docs/architecture.md](docs/architecture.md) |
 | Change anything Zuul talks to (API, webhooks, git) | [docs/zuul-contract.md](docs/zuul-contract.md) |
+| Add or change an endpoint, token or other exposed surface | [docs/security.md](docs/security.md) |
 | Work on the podman demo | [docs/demo.md](docs/demo.md) |
 | Know why things are the way they are | [docs/decisions.md](docs/decisions.md) |
 | Pick the next thing to do (features, production work) | [docs/roadmap.md](docs/roadmap.md) |
@@ -58,11 +59,13 @@ persistent failures are escalated (Jira later).
   `feat/stream-labels`.
 - **One branch per task.**  Commit in small steps, with the tests in the same
   commit as the code they cover.
+- **Findings outside the current task go to [docs/backlog.md](docs/backlog.md)**
+  (where it is, why it matters), not into the current branch.
 - **Before saying a task is done, run the full check command**
   (`scripts/check.sh`, see [The gate](#the-gate-run-before-saying-done)).  A
   branch is ready only when it is green.
 - **Never merge to `main` yourself.**  Present the branch and a summary of the
-  diff; the human merges.
+  diff; the human merges.  Don't push either unless asked.
 
 A Claude Code hook enforces the first rule: `.claude/hooks/no-commit-on-main.py`
 (a `PreToolUse` hook on the Bash tool, configured in `.claude/settings.json`)
@@ -74,6 +77,35 @@ boundary (it does not catch aliases, scripts that call git themselves, or
 `tests/test_branch_guard_hook.py`.  A session that started before
 `.claude/settings.json` existed does not load it until you open `/hooks` or
 restart.
+
+## Security rules
+
+- **No bare user strings as git arguments.**  Anything from a request (branch,
+  tag, ref, revision, path) goes to `git` after `--end-of-options`, or is
+  validated first; a leading `-` must never become an option.  Known
+  exceptions are listed in [docs/backlog.md](docs/backlog.md).
+- **Identity comes from the token, never from the message body.**
+  `stream.apply(forge, msg, sender)` decides who a message acts as
+  (`stream._author`): with `[stream] tokens` the token's user, and naming
+  another is 403; on an open stream any author except `[retry] report_users`.
+  Don't read `author` anywhere else.
+- **Bound every body read and parse** (size, time, JSON shape); malformed input
+  is a 4xx, never a 500 or a hang.
+- **No real tokens in the repo**, tests and docs included; demo values only.
+- **Document every new endpoint, token or exposed surface in
+  [docs/security.md](docs/security.md)**, and give it a test.
+
+## Definition of done for a stream action
+
+A new `POST /api/stream` action is done when it has:
+
+1. its handler in `git_stream/stream.py`, taking `by` from `apply` (don't
+   read the message's `author`);
+2. its entry in `ACTIONS`;
+3. docs: the `stream.py` docstring, the README events table, and
+   `docs/zuul-contract.md` if Zuul sees it;
+4. a test in `tests/`, plus a **contract test** in
+   `tests/test_zuul_contract.py` if Zuul sees any change (webhook, API field).
 
 ## Repository layout
 
@@ -103,10 +135,10 @@ tests/
   test_pending.py         the tests/pending.txt mechanism
   test_branch_guard_hook.py  the hook that blocks commits on main
   test_stream_identity.py who a stream message acts as (token, not "author")
-  test_stream_apply.py    stream.apply's choke point without HTTP: sender, refusals
+  test_stream_apply.py    stream.apply's choke point without HTTP
   test_server_limits.py, test_insecure_defaults.py,
   test_legacy_state.py, test_wiring.py
-                          specs for behavior not built yet (see the backlog)
+                          mostly specs for behavior not built yet (the backlog)
   pending.txt             the tests that are strict xfails until built
 scripts/check.sh          the "run before saying done" gate (lint + all tests)
 .claude/                  project Claude Code config: settings.json, hooks/
@@ -133,19 +165,37 @@ uv pip install -p .venv/bin/python 'git+https://opendev.org/zuul/zuul'
 (To test against a local Zuul patch, install a checkout instead:
 `uv pip install -p .venv/bin/python -e /path/to/zuul`.)
 
+### Commands
+
+Run from the repo root, with the venv from above (`.venv/bin/python`).
+
+| Purpose | Command |
+|---------|---------|
+| Fast inner loop | the tests for the area you're changing (e.g. `.venv/bin/python -m pytest tests/test_stream_*.py -q`), plus the contract tests below (about 7 seconds) |
+| One test | `.venv/bin/python -m pytest tests/test_stream_apply.py::test_the_sender_is_the_default_author` |
+| Contract tests only | `.venv/bin/python -m pytest -m contract` |
+| Lint | `.venv/bin/python -m ruff check .` |
+| **Full gate** | `scripts/check.sh` (ruff, then every test; ~2.5 min) |
+
+**Only the full gate counts for "done".**  The fast loop and a single test
+are for iterating; never report work finished on them.
+
 ### The gate: run before saying done
 
-```sh
-scripts/check.sh      # ruff check, then the full pytest suite (262 tests, ~2 min)
-```
+The gate is what CI would run (see [docs/ci.md](docs/ci.md)); there is no CI
+config in the repo.  Run it before saying a task is done, and report its
+result as it is.
 
-This is what CI would run (see [docs/ci.md](docs/ci.md)); there is no CI
-config in the repo.  Don't report work as finished until it passes.  It
-includes the contract tests, so Zuul must be installed in the venv: if it
-isn't, they **fail** with install instructions rather than skipping.
-`pytest -m "not contract"` runs everything but them for a quick local
-loop; it is not the gate.  CI-like runs use Zuul's latest commit while the
-demo stays pinned in `devenv/common.sh`.
+- **Contract tests must pass, and must run.**  Never skip, deselect
+  (`-m "not contract"`) or xfail them to claim done.  They import Zuul, so
+  Zuul must be installed in the venv; if it isn't, they **fail** with install
+  instructions rather than skipping.
+- A red gate means not done, whatever else passes.
+- **Test integrity.**  Never weaken, delete or edit an assertion to make a test
+  pass.  If a test looks wrong, stop and explain why.  Remove a line from
+  `tests/pending.txt` only when its test passes.
+- CI-like runs use Zuul's latest commit while the demo stays pinned in
+  `devenv/common.sh`.
 
 Some tests specify behavior that isn't built yet.  They are strict xfails,
 listed in `tests/pending.txt` and described in section 1 of
@@ -233,8 +283,9 @@ view is authoritative while running).  Not done: see
 adapter, notifying the announcing system) and [docs/backlog.md](docs/backlog.md)
 (fixes and specs waiting for code).
 
-Known gap: the seeder is not fault-tolerant when starting against a
-pre-existing `state.json` and git repos (an empty `state.db` makes it try
-to re-create projects whose repos already exist, so `update-ref`
-crash-loops).  Reset the forge volume (`clean.sh`) or make the seeder
-skip existing repos before upgrading an instance this way.
+Known gap: the seeder is not fault-tolerant when starting with git repos
+on disk but no forge state (e.g. an old instance's `state.json`, which is
+no longer read unless SQLite is unavailable, or an empty `state.db`): it
+tries to re-create projects whose repos already exist, so `update-ref`
+crash-loops.  Reset the forge volume (`clean.sh`) or make the seeder skip
+existing repos before upgrading an instance this way.
