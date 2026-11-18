@@ -33,7 +33,7 @@ DOUBLE_ENCODED = 'service=git%252Dreceive%252Dpack'
 SERVICE_SPELLINGS = [PLAIN] + ENCODED + [DOUBLE_ENCODED]
 
 # strict: once the check is fixed these start passing, which fails the run
-# until the marker is removed (see docs/roadmap.md, production hardening).
+# until the marker is removed (see docs/backlog.md, section 1).
 KNOWN_GAP = pytest.mark.xfail(
     strict=True, reason='known gap: receive-pack check matches raw text, '
     'see backlog')

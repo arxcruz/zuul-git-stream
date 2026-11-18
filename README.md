@@ -244,6 +244,7 @@ for a quick local run.
 - [docs/security.md](docs/security.md): secrets, tokens, and the production deploy
 - [docs/decisions.md](docs/decisions.md): why it's built this way
 - [docs/roadmap.md](docs/roadmap.md): status and what's next
+- [docs/backlog.md](docs/backlog.md): fixes and specs still to build
 - [AGENTS.md](AGENTS.md): how to continue the work (for AI agents and people)
 
 ## License

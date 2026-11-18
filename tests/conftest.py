@@ -97,7 +97,7 @@ def pytest_collection_modifyitems(items):
                  pending.get(item.nodeid.split('[', 1)[0]))
         if group:
             item.add_marker(pytest.mark.xfail(strict=True, reason=(
-                'specified, not implemented (%s): see docs/roadmap.md; '
+                'specified, not implemented (%s): see docs/backlog.md; '
                 'delete its line in tests/pending.txt once it passes'
                 % group)))
 

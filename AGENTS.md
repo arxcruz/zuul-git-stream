@@ -9,7 +9,8 @@ Read this first, then the doc that matches your task:
 | Change anything Zuul talks to (API, webhooks, git) | [docs/zuul-contract.md](docs/zuul-contract.md) |
 | Work on the podman demo | [docs/demo.md](docs/demo.md) |
 | Know why things are the way they are | [docs/decisions.md](docs/decisions.md) |
-| Pick the next thing to do | [docs/roadmap.md](docs/roadmap.md) |
+| Pick the next thing to do (features, production work) | [docs/roadmap.md](docs/roadmap.md) |
+| Find what is left to fix or build, and what the pending tests specify | [docs/backlog.md](docs/backlog.md) |
 | Port the checks to a CI platform | [docs/ci.md](docs/ci.md) |
 | Use git-stream (events, config) | [README.md](README.md) |
 
@@ -63,12 +64,23 @@ git_stream/               the service (stdlib only)
   stream.py               the event vocabulary (POST /api/stream)
   webhooks.py             ordered webhook delivery with retries
   retry.py                retry/escalation policy (talks to Zuul's builds API)
+  metrics.py              SQLite log of builds, escalations and deliveries
 tests/
   conftest.py             `forge` fixture: a real server on a free port
   test_forge.py           git over HTTP, keys/ids, merges, pages, seeding
   test_zuul_contract.py   Zuul's own GitlabAPIClient + webhook parser vs git-stream
   test_retry.py           retry/escalation with a fake Zuul builds API
   test_config.py          config file / env / CLI precedence and errors
+  test_metrics.py         the metrics store and its endpoint
+  test_webhooks.py        webhook delivery: headers, order, failing receivers
+  test_server_input.py    malformed requests are 4xx; receive-pack refusal
+  test_git_read_only.py   git over HTTP is read-only however a push is spelled
+  test_safety_net.py      contract tests without Zuul; scripts/check.sh
+  test_pending.py         the tests/pending.txt mechanism
+  test_stream_identity.py, test_server_limits.py, test_insecure_defaults.py,
+  test_legacy_state.py, test_wiring.py
+                          specs for behavior not built yet (see the backlog)
+  pending.txt             the tests that are strict xfails until built
 scripts/check.sh          the "run before saying done" gate (lint + all tests)
 devenv/                   podman demo (Zuul + git-stream + demo UI)
   deploy.sh stop.sh clean.sh demo.sh check.sh common.sh
@@ -96,7 +108,7 @@ uv pip install -p .venv/bin/python 'git+https://opendev.org/zuul/zuul'
 ### The gate: run before saying done
 
 ```sh
-scripts/check.sh      # ruff check, then the full pytest suite (217 tests, ~2 min)
+scripts/check.sh      # ruff check, then the full pytest suite (218 tests, ~2 min)
 ```
 
 This is what CI would run (see [docs/ci.md](docs/ci.md)); there is no CI
@@ -108,10 +120,22 @@ loop; it is not the gate.  CI-like runs use Zuul's latest commit while the
 demo stays pinned in `devenv/common.sh`.
 
 Some tests specify behavior that isn't built yet.  They are strict xfails,
-listed in `tests/pending.txt` (see "Specified, not implemented" in
-[docs/roadmap.md](docs/roadmap.md)), so the gate is green while they are
+listed in `tests/pending.txt` and described in section 1 of
+[docs/backlog.md](docs/backlog.md), so the gate is green while they are
 pending.  When you implement one, it starts passing and the run fails with
 `XPASS(strict)` until you delete its line, which is the intended reminder.
+Never add a line to `pending.txt` to hide a test that fails for another
+reason.
+
+### The backlog
+
+[docs/backlog.md](docs/backlog.md) is the list of everything found or decided
+but not done: the specs waiting for code, the follow-ups that go with them,
+audit findings with no test yet, and tooling.  Check it before choosing work.
+Keep it current: delete an item when you finish it, and when you find
+something you are not fixing now, add it there (with where it is and why it
+matters) instead of leaving it in a chat or a code comment.  The roadmap is
+for product features and long-term production work.
 
 The demo (needs podman + podman-compose; first run builds Zuul images,
 ~25 min; later ~1 min):
@@ -178,7 +202,8 @@ its state in `<data>/state.db` and logs job activity in
 `<data>/metrics.db` (both SQLite, both survive a restart; the in-memory
 view is authoritative while running).  Not done: see
 [docs/roadmap.md](docs/roadmap.md) (durable webhook/retry queues, Jira
-adapter, notifying the announcing system).
+adapter, notifying the announcing system) and [docs/backlog.md](docs/backlog.md)
+(fixes and specs waiting for code).
 
 Known gap: the seeder is not fault-tolerant when starting against a
 pre-existing `state.json` and git repos (an empty `state.db` makes it try

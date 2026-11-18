@@ -5,7 +5,7 @@
 # so the full check is green while they are pending, and a test that starts
 # passing FAILS the run ("XPASS(strict)") until its line is deleted here.
 # Implementing a group means deleting its lines.  What each group should do:
-# docs/roadmap.md, "Specified, not implemented".
+# docs/backlog.md, section 1.
 #
 # (The receive-pack cases are marked inline in tests/test_git_read_only.py.)
 
