@@ -129,6 +129,13 @@ section 1.
 - Growth is unbounded: notes, the `seen` ids, the metrics database and webhook
   history (retention policy, or a cleanup of old bundle MRs, which the roadmap
   already lists).
+- `callback_url` deliveries (`git_stream/callbacks.py`) run one thread each, so
+  there is no limit on how many run at once, and two callbacks of the same MR
+  (say `escalated`, then `passed`) are not guaranteed to arrive in the order
+  they fired.  A per-MR queue or a bounded pool would fix both.  Also not
+  done, by decision: an allowlist of callback URLs (any stream sender can make
+  git-stream POST to any http(s) host, internal ones included), an auth header
+  on callbacks, retries, durable delivery, and per-failure events.
 - The seeder is not fault-tolerant against pre-existing state (the "Known
   gap" in `AGENTS.md`): an empty `state.db` makes it recreate projects whose
   repositories exist, and `update-ref` crash-loops.
