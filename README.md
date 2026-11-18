@@ -104,7 +104,7 @@ An event is a JSON object with an `action`.  Send it to `POST
 | `create_project` | `project`, `files` | none |
 | `push` | `project`, `files`, `branch`, `message` | push |
 | `tag` | `project`, `tag`, `rev` | tag push |
-| `open_mr` | `project`, `title`, `files`, `description`, `target_branch`, `key`, `labels`, `max_attempts` | merge request opened |
+| `open_mr` | `project`, `title`, `files`, `description`, `target_branch`, `key`, `labels`, `max_attempts`, `callback_url` | merge request opened (Zuul sees no `callback_url`) |
 | `update_mr` | `project`, `mr`, `files`, `title`, `description` | merge request changed |
 | `comment` | `project`, `mr`, `note` | comment |
 | `label` | `project`, `mr`, `add`, `remove` | merge request labeled |
@@ -172,6 +172,35 @@ A bundle can set its own limit with `"max_attempts"` in `open_mr`
 merge request (new files) starts the count over.  The re-runs rely on a
 pipeline that turns a `rerun ...` comment into the right jobs; see
 `bundle-rerun` and `bundle-dispatch` in `devenv/repos/zuul-config`.
+
+## Callbacks
+
+An `open_mr` may carry `"callback_url"` (an `http` or `https` URL, else a 400
+before anything is created).  When the merge request reaches a final outcome,
+git-stream POSTs it there as JSON, so the system that announced the bundle
+needn't poll:
+
+- `passed`: Zuul approved the merge request;
+- `escalated`: the retries ran out (see above).
+
+Each outcome is sent at most once per version of the merge request, so
+`escalated` followed by a passing rerun sends both, and a new version starts
+over.  Failed attempts and reruns send nothing.
+
+```json
+{"event": "outcome", "outcome": "passed", "project": "bundles", "mr": 1,
+ "key": "b-0042", "title": "Bundle b-0042",
+ "url": "http://git-stream:8090/bundles/merge_requests/1",
+ "sha": "...", "time": 1794916534.7, "approved_by": ["zuul"]}
+```
+
+`escalated` is the escalation record above with `event` set to `outcome` and
+`outcome` added.  Delivery is one attempt with a 10 second timeout, in the
+background; a redirect counts as a failure.  The result is on the merge
+request (`callback` in its JSON and on its page): a list of `{outcome, sha,
+time, status}`, `status` being `delivered` or `failed: <cause>`.  There are
+no retries and no authentication header, and the URL is never shown back.
+Callbacks of one merge request can arrive out of order; use `time`.
 
 ## What git-stream serves
 

@@ -129,10 +129,16 @@ section 1.
 - Growth is unbounded: notes, the `seen` ids, the metrics database and webhook
   history (retention policy, or a cleanup of old bundle MRs, which the roadmap
   already lists).
+- Fields that are not GitLab's reach Zuul's webhooks: `mr_json` also builds the
+  webhook attributes, so `stream_key`, `max_attempts`, `escalated` and the
+  whole `escalation` record are sent to Zuul.  Only `callback` is removed.
+  Check this against [zuul-contract.md](zuul-contract.md) and the contract
+  tests, then drop them from `_hook_mr_attrs` if Zuul doesn't need them.
 - `callback_url` deliveries (`git_stream/callbacks.py`) run one thread each, so
   there is no limit on how many run at once, and two callbacks of the same MR
   (say `escalated`, then `passed`) are not guaranteed to arrive in the order
-  they fired.  A per-MR queue or a bounded pool would fix both.  Also not
+  they fired, so receivers should order by the `time` field.  A per-MR queue
+  or a bounded pool would fix both.  Also not
   done, by decision: an allowlist of callback URLs (any stream sender can make
   git-stream POST to any http(s) host, internal ones included), an auth header
   on callbacks, retries, durable delivery, and per-failure events.
