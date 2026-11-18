@@ -297,6 +297,38 @@ def test_escalated_then_passed_sends_both_in_order(cb, receiver, zuul):
         'escalated', 'passed']
 
 
+def test_a_new_version_during_a_retry_keeps_the_escalated_sha(
+        cb, receiver, zuul):
+    """The escalation is of the version Zuul reported, even if a newer one
+    lands while the builds API is being read."""
+    r = receiver()
+    mr = open_bundle(cb, callback_url=r.url, max_attempts=1)
+    zuul.run(**{'bundle-security': 'FAILURE'})
+    landed = []
+
+    def lookup(query):
+        if not landed:
+            landed.append(cb.send({
+                'action': 'update_mr', 'project': 'bundles', 'mr': 'b-1',
+                'files': {'bundle.yaml': 'id: newer\n'}}))
+        return 200
+    zuul.read_status = lookup
+    policy = RetryPolicy(cb.forge, zuul.url, max_attempts=3, settle=0)
+    report(cb, policy, mr['iid'], 'Build failed.')
+    [newer] = landed
+    assert newer['sha'] != mr['sha']
+
+    assert wait_for(lambda: r.outcomes() == ['escalated'])
+    assert r.bodies[0]['sha'] == mr['sha']
+    assert [(x['outcome'], x['sha']) for x in mr_json(cb)['callback']] == [
+        ('escalated', mr['sha'])]
+
+    # The new version is its own: it can still pass, and say so.
+    zuul_calls(cb, mr['iid'], 'approve', newer['sha'])
+    assert wait_for(lambda: r.outcomes() == ['escalated', 'passed'])
+    assert r.bodies[1]['sha'] == newer['sha']
+
+
 def test_approve_unapprove_approve_sends_passed_once(cb, receiver):
     r = receiver()
     mr = open_bundle(cb, callback_url=r.url)

@@ -756,18 +756,20 @@ class Forge:
                     {'approved_by': list(mr['approved_by'])})
             return self.approvals_json(p, mr)
 
-    def notify_outcome(self, p, mr, outcome, fields=None):
+    def notify_outcome(self, p, mr, outcome, fields=None, sha=None):
         """POST a final outcome of the MR to its callback_url, if it has one.
 
-        Each outcome fires at most once per head sha.  The delivery runs in
-        the background; its result is recorded on the MR.  The caller holds
-        the lock.  fields are added to the body (the escalation brings its
-        own: see retry.py).
+        Each outcome fires at most once per sha: the one the outcome is of
+        (an escalation names the version Zuul reported, which may no longer
+        be the MR's head), else the head.  The delivery runs in the
+        background; its result is recorded on the MR.  The caller holds the
+        lock.  fields are added to the body (the escalation brings its own:
+        see retry.py).
         """
         url = mr.get('callback_url')
         if not url:
             return
-        sha = mr['sha']
+        sha = sha or mr['sha']
         if any(r['sha'] == sha and r['outcome'] == outcome
                for r in mr['callback']):
             return
