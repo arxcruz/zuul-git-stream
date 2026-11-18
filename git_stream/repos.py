@@ -16,6 +16,26 @@ class GitError(Exception):
     pass
 
 
+def valid_branch(name):
+    """True if name is a branch name git accepts.
+
+    Asks git (check-ref-format --branch), after two refusals of our own:
+    that command has no --end-of-options, so a leading "-" never reaches it,
+    and "@" is accepted by it but means HEAD.
+    """
+    if not isinstance(name, str) or name in ('', '@') or name[0] == '-':
+        return False
+    try:
+        proc = subprocess.run(['git', 'check-ref-format', '--branch', name],
+                              capture_output=True)
+    except ValueError:  # embedded NUL
+        return False
+    # --branch expands "@{-1}" using the repo in the current directory; a
+    # name that comes back changed was an expression, not a name.
+    return (proc.returncode == 0 and
+            proc.stdout.decode('utf8', 'replace').rstrip('\n') == name)
+
+
 class Repo:
     def __init__(self, path):
         self.path = path
@@ -50,8 +70,12 @@ class Repo:
 
     def resolve(self, ref):
         """The sha a ref points to, or None."""
-        proc = self.git('rev-parse', '--verify', '-q', ref + '^{commit}',
-                        check=False)
+        # ref can come from a request (a tag's rev, a push's start).  Refuse
+        # anything git could read as an option, and end option parsing too.
+        if ref.startswith('-'):
+            return None
+        proc = self.git('rev-parse', '--verify', '-q', '--end-of-options',
+                        ref + '^{commit}', check=False)
         if proc.returncode != 0:
             return None
         return proc.stdout.decode('utf8').strip()
@@ -137,7 +161,13 @@ class Repo:
                         check=False).returncode == 0
 
     def read_file(self, rev, path):
-        proc = self.git('show', '%s:%s' % (rev, path), check=False)
+        # rev comes from a request (?ref=).  A rev like "--output=<file>"
+        # would be read by git as an option, so refuse it outright and
+        # also end option parsing before it.
+        if rev.startswith('-'):
+            return None
+        proc = self.git('show', '--end-of-options', '%s:%s' % (rev, path),
+                        check=False)
         if proc.returncode != 0:
             return None
         return proc.stdout.decode('utf8', 'replace')

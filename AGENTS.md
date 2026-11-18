@@ -10,6 +10,7 @@ Read this first, then the doc that matches your task:
 | Work on the podman demo | [docs/demo.md](docs/demo.md) |
 | Know why things are the way they are | [docs/decisions.md](docs/decisions.md) |
 | Pick the next thing to do | [docs/roadmap.md](docs/roadmap.md) |
+| Port the checks to a CI platform | [docs/ci.md](docs/ci.md) |
 | Use git-stream (events, config) | [README.md](README.md) |
 
 ## What this is
@@ -68,6 +69,7 @@ tests/
   test_zuul_contract.py   Zuul's own GitlabAPIClient + webhook parser vs git-stream
   test_retry.py           retry/escalation with a fake Zuul builds API
   test_config.py          config file / env / CLI precedence and errors
+scripts/check.sh          the "run before saying done" gate (lint + all tests)
 devenv/                   podman demo (Zuul + git-stream + demo UI)
   deploy.sh stop.sh clean.sh demo.sh check.sh common.sh
   compose.yaml Containerfile git-stream.toml
@@ -79,17 +81,37 @@ docs/                     the documentation listed above
 
 ## Setting up and testing
 
-Zuul's source is expected next to this repo (`../zuul`); the contract
-tests import it.
+The contract tests import Zuul, so it must be installed in the venv.  It
+does not need a checkout next to this repo: install it from git.
 
 ```sh
 uv venv -p 3.12 .venv
-uv pip install -p .venv/bin/python -e '.[test]' ../zuul
-.venv/bin/python -m pytest -q tests        # 35 tests, ~20 s
+uv pip install -p .venv/bin/python -e '.[test,lint]'
+uv pip install -p .venv/bin/python 'git+https://opendev.org/zuul/zuul'
 ```
 
-`tests/test_zuul_contract.py` is skipped if Zuul isn't importable; make
-sure it actually runs (it should report as passed, not skipped).
+(To test against a local Zuul patch, install a checkout instead:
+`uv pip install -p .venv/bin/python -e /path/to/zuul`.)
+
+### The gate: run before saying done
+
+```sh
+scripts/check.sh      # ruff check, then the full pytest suite (217 tests, ~2 min)
+```
+
+This is what CI would run (see [docs/ci.md](docs/ci.md)); there is no CI
+config in the repo.  Don't report work as finished until it passes.  It
+includes the contract tests, so Zuul must be installed in the venv: if it
+isn't, they **fail** with install instructions rather than skipping.
+`pytest -m "not contract"` runs everything but them for a quick local
+loop; it is not the gate.  CI-like runs use Zuul's latest commit while the
+demo stays pinned in `devenv/common.sh`.
+
+Some tests specify behavior that isn't built yet.  They are strict xfails,
+listed in `tests/pending.txt` (see "Specified, not implemented" in
+[docs/roadmap.md](docs/roadmap.md)), so the gate is green while they are
+pending.  When you implement one, it starts passing and the run fails with
+`XPASS(strict)` until you delete its line, which is the intended reminder.
 
 The demo (needs podman + podman-compose; first run builds Zuul images,
 ~25 min; later ~1 min):

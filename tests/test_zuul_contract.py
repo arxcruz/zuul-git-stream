@@ -10,10 +10,35 @@ import types
 
 import pytest
 
-gitlab = pytest.importorskip('zuul.driver.gitlab.gitlabconnection')
-from zuul.driver.gitlab.gitlabsource import GitlabSource  # noqa: E402
+from conftest import API_TOKEN
 
-from conftest import API_TOKEN  # noqa: E402
+# These tests are the safety net for "Zuul must not need changes", so a
+# missing Zuul is a failure, not a skip.  Only a missing `zuul` itself gets
+# the friendly message; any other import error (a broken Zuul install)
+# propagates untouched.  The failure is raised by a fixture rather than at
+# import so that collection still works and `-m "not contract"` can
+# deselect these tests.
+ZUUL_MISSING = None
+try:
+    import zuul.driver.gitlab.gitlabconnection as gitlab
+    from zuul.driver.gitlab.gitlabsource import GitlabSource
+except ModuleNotFoundError as e:
+    if (e.name or '').split('.')[0] != 'zuul':
+        raise
+    ZUUL_MISSING = (
+        'Zuul is not importable, and the contract tests need it: they '
+        "drive Zuul's real GitLab driver against the forge.\n"
+        '  Install it:  uv pip install -p .venv/bin/python '
+        "'git+https://opendev.org/zuul/zuul'\n"
+        '  Or skip them for a quick local run:  pytest -m "not contract"')
+
+pytestmark = pytest.mark.contract
+
+
+@pytest.fixture(autouse=True)
+def zuul_installed():
+    if ZUUL_MISSING:
+        pytest.fail(ZUUL_MISSING, pytrace=False)
 
 
 @pytest.fixture
@@ -170,3 +195,17 @@ def test_depends_on_urls_resolve(forge):
     m = source.change_re.match(
         mr['web_url'][len(forge.url):])
     assert m.groups() == ('bundles', str(mr['iid']))
+
+
+def test_builds_api_takes_the_parameters_the_retry_policy_sends():
+    import inspect
+    from zuul.web import ZuulWebAPI
+    builds = getattr(ZuulWebAPI.builds, '__wrapped__', ZuulWebAPI.builds)
+    sent = {'project', 'change', 'patchset', 'complete', 'limit'}  # retry.py
+    assert sent <= set(inspect.signature(builds).parameters)
+
+
+def test_builds_api_returns_the_fields_the_retry_policy_reads():
+    from zuul.web import BuildConverter
+    read = {'job_name', 'result', 'uuid', 'log_url'}  # retry.py
+    assert read <= set(BuildConverter.schema().value)  # a Prop wrapping it

@@ -85,3 +85,47 @@ def test_command_line(tmp_path, monkeypatch):
     assert s['webhooks']['urls'] == ['http://w']
     with pytest.raises(SystemExit):
         parse_args(['--config', str(tmp_path / 'missing.toml')])
+
+
+def test_request_limits(tmp_path):
+    s = config.load(environ={})
+    assert s['server']['max_body'] == 10 * 1024 * 1024
+    assert s['server']['read_timeout'] == 30
+    path = write(tmp_path, '[server]\nmax_body = 2048\nread_timeout = 5\n')
+    s = config.load(path, environ={})
+    assert (s['server']['max_body'], s['server']['read_timeout']) == (2048, 5)
+    s = config.load(path, environ={'GIT_STREAM_MAX_BODY': '4096',
+                                   'GIT_STREAM_READ_TIMEOUT': '7'})
+    assert (s['server']['max_body'], s['server']['read_timeout']) == (4096, 7)
+
+
+def test_insecure_is_off_unless_asked_for(tmp_path):
+    assert config.load(environ={})['server']['insecure'] is False
+    path = write(tmp_path, '[server]\ninsecure = true\n')
+    assert config.load(path, environ={})['server']['insecure'] is True
+    assert config.load(environ={'GIT_STREAM_INSECURE': 'true'})[
+        'server']['insecure'] is True
+
+
+def test_stream_tokens_come_from_the_file_and_the_environment(tmp_path):
+    path = write(tmp_path, '[stream.tokens]\nalice = "file-token"\n')
+    s = config.load(path, environ={})
+    assert s['stream']['tokens'] == {'alice': 'file-token'}
+    s = config.load(path, environ={
+        'GIT_STREAM_STREAM_TOKENS': 'bob=env-b alice=env-a'})
+    assert s['stream']['tokens'] == {'alice': 'env-a', 'bob': 'env-b'}
+
+
+def test_stream_tokens_from_the_environment_alone():
+    s = config.load(environ={'GIT_STREAM_STREAM_TOKENS': 'alice=tok-a'})
+    assert s['stream']['tokens'] == {'alice': 'tok-a'}
+    assert s['api_tokens'] == {}  # the two kinds of token stay apart
+
+
+def test_settings_do_not_leak_from_one_load_to_the_next():
+    """The defaults are shared objects; filling in tokens must not edit them."""
+    config.load(environ={'GIT_STREAM_STREAM_TOKENS': 'alice=tok-a',
+                         'GIT_STREAM_API_TOKENS': 'zuul=tok-z'})
+    again = config.load(environ={})
+    assert again['stream']['tokens'] == {}
+    assert again['api_tokens'] == {}

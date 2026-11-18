@@ -21,7 +21,7 @@ import sqlite3
 import threading
 import zlib
 
-from git_stream.repos import Repo, ZERO_SHA
+from git_stream.repos import Repo, ZERO_SHA, valid_branch
 
 log = logging.getLogger('git_stream.forge')
 
@@ -502,6 +502,9 @@ class Forge:
         name = name.strip('/')
         if not name or name.endswith('.git') or '..' in name:
             raise ForgeError('invalid project name %r' % name)
+        if not valid_branch(branch):
+            raise ForgeError('invalid branch name %r; use a plain name such '
+                             'as "master" or "release/1.0"' % (branch,))
         with self.lock:
             if name in self.state['projects']:
                 return self.state['projects'][name]

@@ -9,6 +9,11 @@ Zuul's own `GitlabAPIClient` and `GitlabEventConnector` against
 git-stream.  **When upgrading Zuul, re-read those files and re-run the
 contract tests against the new Zuul.**
 
+The demo is pinned to that commit, but the CI recipe (see [ci.md](ci.md)) installs
+Zuul's **latest** commit on every run, so contract drift shows up as a red
+`test` job.  Reproduce locally with
+`uv pip install -p .venv/bin/python 'git+https://opendev.org/zuul/zuul'`.
+
 ## Connection settings (zuul.conf)
 
 ```ini

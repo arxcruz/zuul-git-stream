@@ -1,12 +1,15 @@
 import json
+import os
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest
 
-from git_stream.forge import Forge
-from conftest import Running
+from git_stream.forge import Forge, ForgeError
+from git_stream.repos import Repo
+from conftest import Running, rejected
 
 
 def git(*args, cwd=None):
@@ -75,6 +78,186 @@ def test_raw_file(forge):
         '?ref=master' % forge.url
     with urllib.request.urlopen(url) as r:
         assert r.read() == b'a: 1\n'
+
+
+def test_raw_file_ref_cannot_be_a_git_option(forge, tmp_path):
+    """?ref= is passed to git; "--output=<file>" must not write a file."""
+    target = tmp_path / 'pwned'
+    ref = urllib.parse.quote('--output=%s' % target, safe='')
+    url = '%s/api/v4/projects/bundles/repository/files/README.md/raw' \
+        '?ref=%s' % (forge.url, ref)
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(url)
+    assert e.value.code == 404
+    assert not list(tmp_path.glob('pwned*'))
+
+
+def test_repo_refuses_refs_that_look_like_options(tmp_path):
+    repo = Repo.create(str(tmp_path / 'r.git'))
+    sha = repo.commit(None, {'a': 'x\n'}, 'init', 'u', 'u@example.com')
+    repo.update_ref('refs/heads/master', sha)
+    assert repo.read_file('master', 'a') == 'x\n'
+    assert repo.read_file('-master', 'a') is None
+    assert repo.read_file('--output=%s' % (tmp_path / 'out'), 'a') is None
+    assert not list(tmp_path.glob('out*'))
+
+
+def test_resolve_rejects_refs_that_look_like_options(tmp_path, monkeypatch):
+    """Rejected up front, not by how git happens to parse "<ref>^{commit}"."""
+    repo = Repo.create(str(tmp_path / 'r.git'))
+    sha = repo.commit(None, {'a': 'x\n'}, 'init', 'u', 'u@example.com')
+    repo.update_ref('refs/heads/master', sha)
+    # A branch that really is called "-x": once git is told where options
+    # end, it would resolve, so only an explicit check keeps it refused.
+    repo.update_ref('refs/heads/-x', sha)
+    assert repo.resolve('master') == sha
+
+    calls = []
+    real_git = repo.git
+    monkeypatch.setattr(repo, 'git', lambda *a, **kw: (
+        calls.append(a), real_git(*a, **kw))[1])
+    for ref in ('-x', '--short', '--output=%s' % (tmp_path / 'out')):
+        assert repo.resolve(ref) is None
+    assert calls == []  # git was never asked
+    assert repo.resolve('master') == sha  # normal refs still go through
+    assert not list(tmp_path.glob('out*'))
+
+
+# Names git refuses, or would read as an option or an expression.  5 is
+# not even a string.
+INVALID_BRANCHES = ('-x', '--bare', '--template=/etc', 'a..b', 'HEAD', 'a b',
+                    '@', '@{-1}', 'x.lock', 5)
+
+
+def assert_invalid_branch(forge, msg, branch):
+    code, message = rejected(forge, msg)
+    assert code == 400, (branch, code, message)
+    assert 'invalid branch name' in message, (branch, message)
+    assert repr(branch) in message, (branch, message)
+
+
+def test_create_project_rejects_invalid_branch_names(forge):
+    for branch in INVALID_BRANCHES:
+        assert_invalid_branch(forge, {
+            'action': 'create_project', 'project': 'branchy',
+            'branch': branch}, branch)
+    assert 'branchy' not in forge.forge.state['projects']
+    assert not os.path.exists(
+        os.path.join(forge.forge.repo_root, 'branchy.git'))
+
+
+def test_create_project_accepts_ordinary_branch_names(forge):
+    for project, branch in (('p1', 'main'), ('p2', 'release/1.0')):
+        made = forge.send({'action': 'create_project', 'project': project,
+                           'branch': branch})
+        assert made['default_branch'] == branch
+
+
+def test_push_rejects_invalid_branch_names(forge):
+    repo = forge.forge.repo(forge.forge.project('bundles'))
+    refs_before = repo.out('for-each-ref', '--format=%(refname)')
+    pushes_before = len(forge.hooks_of('push'))
+    for branch in INVALID_BRANCHES:
+        assert_invalid_branch(forge, {
+            'action': 'push', 'project': 'bundles', 'branch': branch,
+            'files': {'a.yaml': 'a: 1\n'}}, branch)
+    # Nothing was created and no webhook announced a change.
+    assert repo.out('for-each-ref', '--format=%(refname)') == refs_before
+    assert len(forge.hooks_of('push')) == pushes_before
+
+
+def test_push_accepts_ordinary_branch_names(forge):
+    pushed = forge.send({'action': 'push', 'project': 'bundles',
+                         'branch': 'release/1.0',
+                         'files': {'a.yaml': 'a: 1\n'}})
+    assert pushed['ref'] == 'refs/heads/release/1.0'
+    # No branch means the project's default branch.
+    default = forge.send({'action': 'push', 'project': 'bundles',
+                          'files': {'b.yaml': 'b: 1\n'}})
+    assert default['ref'] == 'refs/heads/master'
+
+
+def test_open_mr_rejects_invalid_target_branch_names(forge):
+    for branch in INVALID_BRANCHES:
+        assert_invalid_branch(forge, {
+            'action': 'open_mr', 'project': 'bundles', 'title': 'T',
+            'key': 'k', 'target_branch': branch,
+            'files': {'a.yaml': 'a: 1\n'}}, branch)
+    assert forge.forge.project('bundles')['mrs'] == {}
+
+
+def test_open_mr_accepts_an_existing_target_branch(forge):
+    forge.send({'action': 'push', 'project': 'bundles',
+                'branch': 'release/1.0', 'files': {'a.yaml': 'a: 1\n'}})
+    mr = forge.send({'action': 'open_mr', 'project': 'bundles',
+                     'title': 'T', 'target_branch': 'release/1.0',
+                     'files': {'b.yaml': 'b: 1\n'}})
+    assert mr['target_branch'] == 'release/1.0'
+
+
+INVALID_TAGS = ('-x', '--bare', 'a..b', 'a b', '@{-1}', 'x.lock', 5)
+
+
+def test_tag_rejects_invalid_tag_names(forge):
+    repo = forge.forge.repo(forge.forge.project('bundles'))
+    refs_before = repo.out('for-each-ref', '--format=%(refname)')
+    tags_before = len(forge.hooks_of('tag_push'))
+    for tag in INVALID_TAGS:
+        code, message = rejected(forge, {
+            'action': 'tag', 'project': 'bundles', 'tag': tag})
+        assert code == 400, (tag, code, message)
+        assert 'invalid tag name' in message, (tag, message)
+        assert repr(tag) in message, (tag, message)
+    assert repo.out('for-each-ref', '--format=%(refname)') == refs_before
+    assert len(forge.hooks_of('tag_push')) == tags_before
+
+
+def test_tag_accepts_ordinary_names(forge):
+    for tag in ('v1.0', 'release/1'):
+        tagged = forge.send({'action': 'tag', 'project': 'bundles',
+                             'tag': tag})
+        assert tagged['ref'] == 'refs/tags/' + tag
+
+
+def test_tagging_twice_is_a_conflict_and_changes_nothing(forge):
+    first = forge.send({'action': 'tag', 'project': 'bundles', 'tag': 'v1'})
+    forge.send({'action': 'push', 'project': 'bundles',
+                'files': {'a.yaml': 'a: 1\n'}})
+    tags_before = len(forge.hooks_of('tag_push'))
+    code, message = rejected(forge, {
+        'action': 'tag', 'project': 'bundles', 'tag': 'v1'})
+    assert code == 409, (code, message)
+    assert 'v1' in message and 'already exists' in message
+    repo = forge.forge.repo(forge.forge.project('bundles'))
+    assert repo.resolve('refs/tags/v1') == first['after']
+    assert len(forge.hooks_of('tag_push')) == tags_before
+
+
+def test_valid_branch_ignores_the_current_repo(tmp_path, monkeypatch):
+    """git expands "@{-1}" using the repo it runs in; that is not a name."""
+    from git_stream.repos import valid_branch
+    repo = tmp_path / 'work'
+    repo.mkdir()
+    for cmd in (['init', '-q', '-b', 'main'],
+                ['commit', '-q', '--allow-empty', '-m', 'i'],
+                ['checkout', '-q', '-b', 'other'], ['checkout', '-q', 'main']):
+        git('-c', 'user.name=u', '-c', 'user.email=u@example.com', *cmd,
+            cwd=repo)
+    monkeypatch.chdir(repo)
+    assert valid_branch('main')
+    assert not valid_branch('@{-1}')
+
+
+def test_seed_goes_through_create_projects_validation(tmp_path):
+    """seed() has no branch input; it must not bypass create_project."""
+    from git_stream.__main__ import seed
+    (tmp_path / 'seed' / 'a..b').mkdir(parents=True)
+    (tmp_path / 'seed' / 'a..b' / 'README.md').write_text('hi\n')
+    f = Forge(str(tmp_path / 'data'), 'http://x')
+    with pytest.raises(ForgeError, match='invalid project name'):
+        seed(f, str(tmp_path / 'seed'))
+    assert f.state['projects'] == {}
+    assert os.listdir(f.repo_root) == []
 
 
 def test_bad_messages_are_rejected(forge):

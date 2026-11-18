@@ -226,14 +226,15 @@ webhook_token=WEBHOOK_TOKEN
 ## Tests
 
 ```sh
-pip install -e '.[test]' /path/to/zuul
-pytest tests
+pip install -e '.[test]' 'git+https://opendev.org/zuul/zuul'
+pytest
 ```
 
 `tests/test_zuul_contract.py` drives Zuul's own `GitlabAPIClient` against
 git-stream and feeds the webhooks it sends to Zuul's own webhook parser,
-so a change Zuul wouldn't understand fails there.  It's skipped when Zuul
-isn't installed.
+so a change Zuul wouldn't understand fails there.  It fails (it is not
+skipped) when Zuul isn't installed; `pytest -m "not contract"` leaves it out
+for a quick local run.
 
 ## Documentation
 
