@@ -59,6 +59,12 @@ persistent failures are escalated (Jira later).
   `feat/stream-labels`.
 - **One branch per task.**  Commit in small steps, with the tests in the same
   commit as the code they cover.
+- **Start a new feature with `/spec <idea>`.**  It reads what the docs already
+  say, drafts a spec in the format of `docs/specs/callback-url.md`, asks the
+  open decisions one at a time, and saves `docs/specs/<name>.md` on a
+  `feat/<name>` branch, uncommitted, for the human to review.  It refuses on a
+  dirty tree or off `main`, and writes no code or tests; those come after the
+  human approves the spec.  `/review` later checks the branch against it.
 - **Findings outside the current task go to [docs/backlog.md](docs/backlog.md)**
   (where it is, why it matters), not into the current branch.
 - **Before saying a task is done, run the full check command**
@@ -158,6 +164,7 @@ tests/
   test_branch_guard_hook.py  the hook that blocks commits on main
   test_review_hook.py     the hook that keeps the branch-reviewer read-only
   test_stop_hook.py       the Stop hook that runs the fast checks
+  test_spec_skill.py      the /spec skill: frontmatter, tools, spec format
   test_stream_identity.py who a stream message acts as (token, not "author")
   test_stream_apply.py    stream.apply's choke point without HTTP
   test_server_limits.py, test_insecure_defaults.py,
@@ -167,7 +174,8 @@ tests/
 scripts/check.sh          the "run before saying done" gate (lint + all tests)
 .claude/                  project Claude Code config: settings.json, hooks/,
                           agents/branch-reviewer.md (read-only reviewer),
-                          skills/review/ (the /review [base] command)
+                          skills/review/ (the /review [base] command),
+                          skills/spec/ (the /spec <idea> command)
 devenv/                   podman demo (Zuul + git-stream + demo UI)
   deploy.sh stop.sh clean.sh demo.sh check.sh common.sh
   compose.yaml Containerfile git-stream.toml
