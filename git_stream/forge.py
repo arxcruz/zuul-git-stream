@@ -203,6 +203,12 @@ class JsonStore:
         pass
 
 
+def _check_branch(branch):
+    if not valid_branch(branch):
+        raise ForgeError('invalid branch name %r; use a plain name such '
+                         'as "master" or "release/1.0"' % (branch,))
+
+
 def _loads(value):
     return json.loads(value) if value else []
 
@@ -507,9 +513,7 @@ class Forge:
         name = name.strip('/')
         if not name or name.endswith('.git') or '..' in name:
             raise ForgeError('invalid project name %r' % name)
-        if not valid_branch(branch):
-            raise ForgeError('invalid branch name %r; use a plain name such '
-                             'as "master" or "release/1.0"' % (branch,))
+        _check_branch(branch)
         with self.lock:
             if name in self.state['projects']:
                 return self.state['projects'][name]
@@ -529,7 +533,13 @@ class Forge:
             return p
 
     def push(self, project, files, message, by, branch=None, start=None):
-        """Commit files to a branch (created from start if missing)."""
+        """Commit files to a branch (created from start if missing).
+
+        start is a revision (a sha, a tag, a branch), not a branch name, so
+        it is not checked as one.
+        """
+        if branch:
+            _check_branch(branch)
         with self.lock:
             p = self.project(project)
             branch = branch or p['default_branch']
@@ -562,6 +572,8 @@ class Forge:
     def open_mr(self, project, title, files, by, description='',
                 target_branch=None, message=None, key=None, labels=(),
                 max_attempts=None):
+        if target_branch:
+            _check_branch(target_branch)
         with self.lock:
             p = self.project(project)
             if key is not None and str(key) in p['keys']:

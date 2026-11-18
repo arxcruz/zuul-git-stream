@@ -10,8 +10,6 @@
 # (The receive-pack cases are marked inline in tests/test_git_read_only.py.)
 
 # group: branch and tag names
-tests/test_forge.py::test_push_rejects_invalid_branch_names
-tests/test_forge.py::test_open_mr_rejects_invalid_target_branch_names
 tests/test_forge.py::test_tag_rejects_invalid_tag_names
 tests/test_forge.py::test_tagging_twice_is_a_conflict_and_changes_nothing
 
