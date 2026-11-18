@@ -206,14 +206,14 @@ Run from the repo root, with the venv from above (`.venv/bin/python`).
 
 | Purpose | Command |
 |---------|---------|
-| **Fast loop** (whole suite in parallel, skipping the slow tests) | `.venv/bin/python -m pytest -n auto -m "not slow" -x -q` (about 10 seconds on 18 cores; includes the contract tests) |
-| Whole suite in parallel, slow tests included | `.venv/bin/python -m pytest -n auto -q` (about 16 seconds; 320 passed, 27 xfailed) |
-| Fast loop, serial | `.venv/bin/python -m pytest -m "not slow" -x -q` (about 1 minute; readable output, exact `-x`, for debugging) |
-| Narrower loop | the tests for the area you're changing (e.g. `.venv/bin/python -m pytest tests/test_stream_*.py -q`), plus the contract tests below (about 7 seconds) |
+| **Fast loop** (whole suite in parallel, skipping the slow tests) | `.venv/bin/python -m pytest -n auto -m "not slow" -x -q` (includes the contract tests; pytest prints the counts and the time) |
+| Whole suite in parallel, slow tests included | `.venv/bin/python -m pytest -n auto -q` (the closing line gives the counts and the time) |
+| Fast loop, serial | `.venv/bin/python -m pytest -m "not slow" -x -q` (readable output, exact `-x`, for debugging) |
+| Narrower loop | the tests for the area you're changing (e.g. `.venv/bin/python -m pytest tests/test_stream_*.py -q`), plus the contract tests below |
 | One test | `.venv/bin/python -m pytest tests/test_stream_apply.py::test_the_sender_is_the_default_author` |
 | Contract tests only | `.venv/bin/python -m pytest -m contract` |
 | Lint | `.venv/bin/python -m ruff check .` |
-| **Full gate** | `scripts/check.sh` (ruff, then every test serially, slow ones included; ~1.5 min) |
+| **Full gate** | `scripts/check.sh` (ruff, then every test serially, slow ones included) |
 
 **Only the full gate counts for "done".**  The fast loop, the narrower loop
 and a single test are for iterating; never report work finished on them.
@@ -222,7 +222,7 @@ and a single test are for iterating; never report work finished on them.
 `pyproject.toml` (so the setup command above installs it) and nothing in
 `git_stream/` uses it; the service stays standard library only.  `-n auto`
 starts one worker process per core, and each imports Zuul, so on a small
-machine use `-n 4` (about 34 seconds for the whole suite).  The gate,
+machine use `-n 4`.  The gate,
 `scripts/check.sh`, stays serial on purpose: it decides "done", and a
 timing-sensitive test is least likely to flake when it has the machine to
 itself.
@@ -242,9 +242,8 @@ file, a port or a database with any other test:
 - don't depend on the order tests run in or on another test's leftovers.
 
 A test that passes alone and fails under `-n auto` is sharing something:
-fix the test, don't drop `-n`.  The suite was run 10 times in a row with
-`-n auto` (all green, 320 passed and 27 xfailed each time) when this was
-added.
+fix the test, don't drop `-n`.  To check a new test, run the suite a few
+times in a row with `-n auto`; every run must be green.
 
 Tests marked `slow` (registered in `pyproject.toml`) are the ones that take
 about a second or more because they wait on purpose: timeouts, retry
