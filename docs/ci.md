@@ -43,6 +43,6 @@ pytest                                              # includes the contract test
   (`tests/test_zuul_contract.py`); never run `pytest -m "not contract"` in
   CI.
 - No `PBR_VERSION` workaround is needed to install Zuul from git.
-- Verified locally in clean Python 3.12 venvs: both jobs pass (35 tests,
-  against Zuul `faa679f`).  The platform-specific parts (pipeline rules,
+- Verified locally in clean Python 3.12 venvs, at the time of writing: both
+  jobs passed against Zuul `faa679f`.  The platform-specific parts (pipeline rules,
   caching, runner access to opendev.org) have not been exercised.
