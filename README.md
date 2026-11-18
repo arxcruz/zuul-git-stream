@@ -175,8 +175,9 @@ pipeline that turns a `rerun ...` comment into the right jobs; see
 
 ## Callbacks
 
-An `open_mr` may carry `"callback_url"` (an `http` or `https` URL, else a 400
-before anything is created).  When the merge request reaches a final outcome,
+An `open_mr` may carry `"callback_url"` (an `http` or `https` URL of at most
+2048 characters, with no spaces or control characters, else a 400 before
+anything is created).  When the merge request reaches a final outcome,
 git-stream POSTs it there as JSON, so the system that announced the bundle
 needn't poll:
 

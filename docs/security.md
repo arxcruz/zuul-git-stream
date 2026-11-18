@@ -70,8 +70,9 @@ where git-stream makes a request to an address a sender picked, so:
   `failed: <cause>` (the URL is removed from the cause); the pages, the
   escalation list and the webhooks to Zuul show none of it.  The URL is stored in `state.db`, so
   protect that file like the tokens.
-- **Bounded and validated**: only `http` and `https` with a host (no
-  `file:`, no whitespace) pass, checked before anything is created.  One
+- **Bounded and validated**: only `http` and `https` with a host pass, at
+  most 2048 characters, no whitespace or control characters (DEL included),
+  checked before anything is created.  One
   attempt, 10 second timeout, redirects refused, the body is fixed JSON, and
   a hung receiver can't delay Zuul or other merge requests.
 - **No proxy**: `HTTP_PROXY`, `HTTPS_PROXY` and friends are ignored, so a

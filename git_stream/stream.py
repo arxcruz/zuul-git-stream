@@ -28,11 +28,11 @@ comes from the sender's token, not from the message:
   may be any name except the users the retry policy trusts as Zuul's own
   (`[retry] report_users`), which is a 403.
 
-A "callback_url" (an http or https URL, else 400 before anything is created)
-makes git-stream POST the final outcome of the merge request there: "passed"
-when Zuul approves it, "escalated" when the retries run out, each at most once
-per head sha.  One attempt, in the background; a redelivered open_mr keeps
-the first URL.  See the README, "Callbacks".
+A "callback_url" (an http or https URL of up to 2048 characters, else 400
+before anything is created) makes git-stream POST the final outcome of the
+merge request there: "passed" when Zuul approves it, "escalated" when the
+retries run out, each at most once per sha.  One attempt, in the background;
+a redelivered open_mr keeps the first URL.  See the README, "Callbacks".
 
 In "files", a null value deletes the file.  Branch and tag names must be ones
 git accepts (400 otherwise); tagging an existing name is a 409.

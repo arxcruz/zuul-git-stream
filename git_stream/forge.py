@@ -230,13 +230,17 @@ def _check_branch(branch):
                          'as "master" or "release/1.0"' % (branch,))
 
 
+CALLBACK_URL_MAX = 2048
+
+
 def check_callback_url(value):
     """The callback_url of an open_mr, or ForgeError: an http(s) URL."""
-    what = 'callback_url must be an http or https URL, such as ' \
-           '"https://announcer.example.com/outcome"'
-    if not isinstance(value, str):
+    what = ('callback_url must be an http or https URL of at most %d '
+            'characters, such as "https://announcer.example.com/outcome"'
+            % CALLBACK_URL_MAX)
+    if not isinstance(value, str) or len(value) > CALLBACK_URL_MAX:
         raise ForgeError(what)
-    if any(c.isspace() or ord(c) < 32 for c in value):
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
         raise ForgeError(what)
     try:
         parts = urllib.parse.urlsplit(value)

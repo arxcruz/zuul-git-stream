@@ -204,9 +204,12 @@ def test_without_a_callback_url_nothing_changes(cb, receiver, zuul):
 @pytest.mark.parametrize('value', [
     'ftp://example.com/x', 'file:///etc/passwd', 'javascript:alert(1)',
     'example.com/hook', 'http://', 'https:///x', '', 123, True,
-    ['http://example.com/x'], {'url': 'http://example.com/x'}],
+    ['http://example.com/x'], {'url': 'http://example.com/x'},
+    'http://example.com/a\x7fb', 'http://example.com/a\x00b',
+    'http://example.com/' + 'a' * 2030],
     ids=['ftp', 'file', 'javascript', 'no-scheme', 'no-host-http',
-         'no-host-https', 'empty', 'int', 'bool', 'list', 'dict'])
+         'no-host-https', 'empty', 'int', 'bool', 'list', 'dict', 'del',
+         'nul', 'too-long'])
 def test_a_bad_callback_url_is_a_400_and_creates_nothing(cb, value):
     hooks_before = len(cb.hooks)
     repo = cb.forge.repo(cb.forge.project('bundles'))
@@ -225,6 +228,17 @@ def test_a_bad_callback_url_is_a_400_and_creates_nothing(cb, value):
     assert repo.resolve('refs/heads/master') == master_before
     # The key is free: the sender can try again with a good URL.
     assert open_bundle(cb, callback_url='http://example.com/x')['iid'] == 1
+
+
+def test_the_length_limit_is_2048_characters(cb):
+    url = 'http://example.com/'
+    assert open_bundle(cb, key='ok', callback_url=url + 'a' * (
+        2048 - len(url)))['iid']
+    code, message = rejected(cb, {
+        'action': 'open_mr', 'project': 'bundles', 'key': 'long',
+        'title': 'T', 'files': {'a.yaml': 'a: 1\n'},
+        'callback_url': url + 'a' * (2049 - len(url))})
+    assert code == 400 and '2048' in message
 
 
 def test_http_and_https_are_accepted(cb):
