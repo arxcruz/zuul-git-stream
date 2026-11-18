@@ -4,8 +4,9 @@ A skill is a prompt, so these tests check what can be checked without a
 model: the frontmatter (user-invoked only, runs inline, narrow tools), that
 every command it injects is allowed, that every file it tells the model to
 read exists, and that the spec format it asks for is the one of
-docs/specs/callback-url.md, the template.  Whether the interview itself goes
-well is a manual dry run (see the branch notes).
+docs/specs/callback-url.md, the template.  They cannot show that Claude Code
+accepts the `allowed-tools` patterns or that the interview goes well; that is
+a manual dry run of `/spec` on `main` (docs/backlog.md, section 4).
 """
 
 import fnmatch

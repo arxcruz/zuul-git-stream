@@ -210,3 +210,13 @@ section 1.
   above a threshold); the `git` calls have no timeout (only the ruff probe and
   the checks do); and no test runs the hook against the real ruff and pytest,
   only a stub (the wiring was checked by hand on this branch).
+- `/spec` skill (`.claude/skills/spec/SKILL.md`), from the branch review:
+  the `allowed-tools` patterns (`Write(docs/specs/*)`, `Bash(git switch -c
+  feat/*)`) were never run in a live session, so whether Claude Code accepts
+  the space-separated list, rejects a `..` path, or refuses a start point
+  after the branch name is unchecked; do one manual dry run of `/spec` on
+  `main` and tighten the patterns if any of these slips through.  Several
+  tests in `tests/test_spec_skill.py` grep the prose for keywords ("never",
+  "recommend", "plan"), so they show the skill mentions a behavior, not that
+  it demands it.  `AGENTS.md` quotes test counts ("320 passed, 27 xfailed")
+  that the suite has outgrown.
