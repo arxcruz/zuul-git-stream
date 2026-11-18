@@ -204,3 +204,9 @@ section 1.
   the imports and the ignores.
 - The suite takes about two minutes, mostly timeout and retry tests; consider
   trimming waits or a marker for the slow ones.
+- Stop hook (`.claude/hooks/stop-checks.py`), from the branch review:
+  `fingerprint()` reads every changed file whole, so a very large untracked
+  file not covered by `.gitignore` slows every Stop (hash a size and mtime
+  above a threshold); the `git` calls have no timeout (only the ruff probe and
+  the checks do); and no test runs the hook against the real ruff and pytest,
+  only a stub (the wiring was checked by hand on this branch).

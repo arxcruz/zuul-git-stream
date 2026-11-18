@@ -123,11 +123,12 @@ the stop with the failure output.  Choices:
 - **JSON `decision: "block"`** rather than exit 2: the reason is explicit
   and mandatory.
 - **Loop guard by tree fingerprint** (HEAD, `git status`, changed files'
-  contents) kept per session under `$TMPDIR`, on top of `stop_hook_active`
-  and Claude Code's own cap of 8 consecutive continuations.  A tree that
-  passed is not re-checked (so a dirty branch does not cost 10 s on every chat
-  turn); a tree that failed and did not change is let through, since another
-  block cannot help.  Any change is re-checked, even while `stop_hook_active`.
+  contents) kept per session under `$TMPDIR`, on top of Claude Code's own cap
+  of 8 consecutive continuations.  The `stop_hook_active` input is not read:
+  the fingerprint says more.  A tree that passed is not re-checked (so a
+  dirty branch does not cost 10 s on every chat turn); a tree that failed and
+  did not change is let through, since another block cannot help.  Any change
+  is re-checked.
 - **Fails open**: a missing venv or ruff, bad input or a check over 90 s
   (`STOP_HOOK_TIMEOUT`) prints a note and lets the agent stop; a broken hook
   must not trap it.

@@ -90,7 +90,7 @@ runs `ruff check .` and then `pytest -n auto -m "not slow" -x -q` when you try
 to finish a turn, but only if a code or test file changed in the working tree
 (tracked or untracked; markdown and docs-only changes don't count).  If a
 check fails it blocks the stop and hands you the output; fix it and finish
-again.  It does nothing on `main`/`master`, never changes the repository,
+again.  It does nothing on `main`/`master`, never edits a tracked file,
 skips a tree it already checked (state in `$TMPDIR/git-stream-stop-hook/`),
 lets an unchanged failing tree through rather than blocking forever, and fails
 open (a note on stderr) when the venv, ruff or time is missing.  **It is not

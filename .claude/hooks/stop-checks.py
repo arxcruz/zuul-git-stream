@@ -20,17 +20,18 @@ It does nothing (and costs nothing) when:
     broken hook must not trap the agent, so these print a note on stderr and
     exit 0.
 
-Loops.  `stop_hook_active` is true while Claude Code is continuing because of
-a stop hook, and Claude Code ends the turn after 8 blocks in a row.  The hook
-also keeps a fingerprint (HEAD, `git status`, the changed files' contents) of
-the last tree it checked, and its result, in
-`$TMPDIR/git-stream-stop-hook/<session_id>.json`.  A tree that passed is not
-checked again.  A tree that failed and has not changed since is let through:
-blocking again cannot help when the agent changed nothing.  Any change to the
-tree, whether or not `stop_hook_active` is set, gets a fresh check.
+Loops.  Claude Code ends the turn after 8 blocks in a row, and sets
+`stop_hook_active` while it is continuing because of a stop hook.  The hook
+does not read that flag: it keeps a fingerprint (HEAD, `git status`, the
+changed files' contents) of the last tree it checked, and its result, in
+`$TMPDIR/git-stream-stop-hook/<session_id>.json`, which says more.  A tree
+that passed is not checked again.  A tree that failed and has not changed
+since is let through: blocking again cannot help when the agent changed
+nothing.  Any change to the tree gets a fresh check.
 
 This is not the gate: it skips the slow tests.  `scripts/check.sh` decides
-"done".  The hook never modifies the repository.  Standard library only.
+"done".  The hook never edits a tracked file and leaves nothing untracked
+behind (the tools' caches are git-ignored).  Standard library only.
 """
 
 import hashlib
@@ -129,7 +130,10 @@ def run(command, cwd, timeout):
     try:
         output, _ = proc.communicate(timeout=max(timeout, 1))
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)  # the whole group, workers too
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)  # the whole group, workers too
+        except ProcessLookupError:  # it exited just as the time ran out
+            pass
         proc.communicate()
         return None
     return proc.returncode, output

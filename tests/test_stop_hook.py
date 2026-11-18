@@ -7,6 +7,7 @@ nested pytest runs.  The hook keeps its state under TMPDIR, which each test
 points at its own directory.
 """
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -271,6 +272,19 @@ def test_a_hung_check_is_cut_off_and_lets_the_agent_stop(repo, run_hook):
     result = run_hook(repo, STUB_SLEEP='30', STOP_HOOK_TIMEOUT='1')
     assert (result.code, result.out) == (0, '')
     assert 'timed out' in result.err
+
+
+@pytest.mark.slow
+def test_a_check_that_exits_as_it_is_killed_is_still_a_timeout(monkeypatch):
+    spec = importlib.util.spec_from_file_location('stop_checks', HOOK)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def already_gone(pid, sig):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(module.os, 'killpg', already_gone)
+    assert module.run(['sleep', '3'], '.', 1) is None
 
 
 def test_unreadable_input_does_not_block(repo, run_hook):
