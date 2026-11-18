@@ -19,9 +19,11 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 import urllib.parse
 import zlib
 
+from git_stream import callbacks
 from git_stream.repos import Repo, ZERO_SHA, valid_branch, valid_tag
 
 log = logging.getLogger('git_stream.forge')
@@ -299,6 +301,7 @@ class Forge:
         self.report_users = set(report_users)
         self.insecure = insecure
         self.lock = threading.RLock()
+        self.closed = False
         os.makedirs(self.repo_root, exist_ok=True)
         self.store = _load_store(data_dir)
         self.state = self.store.load()
@@ -326,7 +329,9 @@ class Forge:
         self.store.save(self.state)
 
     def close(self):
-        self.store.close()
+        with self.lock:
+            self.closed = True
+            self.store.close()
 
     def user_for_token(self, token):
         if not self.users:
@@ -743,7 +748,43 @@ class Forge:
             mr['updated_at'] = now()
             self.save()
             self._emit_mr(p, mr, 'approved', by)
+            if by in self.report_users:
+                # Zuul only approves when every job of the version passed.
+                self.notify_outcome(p, mr, 'passed',
+                                    approved_by=list(mr['approved_by']))
             return self.approvals_json(p, mr)
+
+    def notify_outcome(self, p, mr, outcome, **fields):
+        """POST a final outcome of the MR to its callback_url, if it has one.
+
+        Each outcome fires at most once per head sha.  The delivery runs in
+        the background; its result is recorded on the MR.  The caller holds
+        the lock.  fields are added to the body (the escalation brings its
+        own: see retry.py).
+        """
+        url = mr.get('callback_url')
+        if not url:
+            return
+        sha = mr['sha']
+        if any(r['sha'] == sha and r['outcome'] == outcome
+               for r in mr['callback']):
+            return
+        record = {'outcome': outcome, 'sha': sha, 'time': time.time(),
+                  'status': None}
+        mr['callback'].append(record)
+        self.save()
+        body = {'project': p['name'], 'mr': mr['iid'], 'key': mr.get('key'),
+                'title': mr['title'], 'url': self.mr_url(p, mr), 'sha': sha,
+                'time': record['time']}
+        body.update(fields)
+        body.update(event='outcome', outcome=outcome)
+
+        def done(status):
+            with self.lock:
+                record['status'] = status
+                if not self.closed:
+                    self.save()
+        callbacks.send(url, body, done)
 
     def unapprove(self, project, ref, by):
         with self.lock:

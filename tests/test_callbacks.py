@@ -20,7 +20,7 @@ import urllib.request
 
 import pytest
 
-from conftest import API_TOKEN, Running, rejected
+from conftest import API_TOKEN, Running, rejected, wait_for
 from test_retry import FakeZuul
 
 SECRET_URL = '/hook?token=s3cret-callback-token'
@@ -129,8 +129,28 @@ def delivered(forge, key='b-1', count=1):
 
 # -- scenario 1: passed --------------------------------------------------
 
+def test_a_passing_mr_posts_passed_to_its_callback(cb, receiver):
+    r = receiver()
+    mr = open_bundle(cb, callback_url=r.url)
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(lambda: r.attempts == 1)
+    [body] = r.bodies
+    assert body['event'] == 'outcome' and body['outcome'] == 'passed'
+    assert body['project'] == 'bundles' and body['mr'] == mr['iid']
+    assert body['key'] == 'b-1' and body['title'] == 'Bundle b-1'
+    assert body['url'].endswith('/bundles/merge_requests/%s' % mr['iid'])
+    assert body['sha'] == mr['sha'] and body['approved_by'] == ['zuul']
+    assert isinstance(body['time'], float)
+    assert r.headers[0]['Content-Type'] == 'application/json'
 
 
+def test_a_human_approval_is_not_a_pass(cb, receiver):
+    r = receiver()
+    open_bundle(cb, callback_url=r.url)
+    cb.send({'action': 'approve', 'project': 'bundles', 'mr': 'b-1',
+             'author': 'alice'})
+    time.sleep(0.4)
+    assert r.attempts == 0 and mr_json(cb)['callback'] == []
 
 
 # -- scenario 2: escalated -----------------------------------------------
@@ -194,24 +214,88 @@ def dead_port():
     return port
 
 
+def test_a_failing_receiver_gets_one_attempt_and_is_recorded(cb, receiver):
+    r = receiver(status=500)
+    mr = open_bundle(cb, callback_url=r.url)
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(delivered(cb))
+    time.sleep(1.5)  # a retry, if there were one, would show by now
+    assert r.attempts == 1
+    [record] = mr_json(cb)['callback']
+    assert record['outcome'] == 'passed' and record['sha'] == mr['sha']
+    assert record['status'].startswith('failed: ') and (
+        len(record['status']) > len('failed: '))
+    assert isinstance(record['time'], float)
 
 
+def test_a_refused_connection_is_recorded_as_failed(cb):
+    mr = open_bundle(cb, callback_url='http://127.0.0.1:%d/x' % dead_port())
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(delivered(cb))
+    [record] = mr_json(cb)['callback']
+    assert record['status'].startswith('failed: ')
 
 
+def test_a_successful_delivery_is_recorded(cb, receiver):
+    r = receiver()
+    mr = open_bundle(cb, callback_url=r.url)
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(delivered(cb))
+    [record] = mr_json(cb)['callback']
+    assert record['status'] == 'delivered'
 
 
+def test_a_hanging_callback_delays_neither_zuul_nor_other_mrs(cb, receiver):
+    slow, fast = receiver(delay=4), receiver()
+    a = open_bundle(cb, key='a', callback_url=slow.url)
+    b = open_bundle(cb, key='b', callback_url=fast.url)
+    started = time.time()
+    zuul_calls(cb, a['iid'], 'approve', a['sha'])
+    assert time.time() - started < 1.5  # Zuul's call is not held
+    zuul_calls(cb, b['iid'], 'approve', b['sha'])
+    assert wait_for(lambda: fast.attempts == 1, timeout=2)
+    assert time.time() - started < 3  # b did not wait for a
 
 
 # -- once per outcome per head sha ---------------------------------------
 
 
 
+def test_approve_unapprove_approve_sends_passed_once(cb, receiver):
+    r = receiver()
+    mr = open_bundle(cb, callback_url=r.url)
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    zuul_calls(cb, mr['iid'], 'unapprove')
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(lambda: r.attempts == 1)
+    time.sleep(0.5)
+    assert r.outcomes() == ['passed']
 
 
+def test_a_new_sha_resets_what_has_fired(cb, receiver):
+    r = receiver()
+    mr = open_bundle(cb, callback_url=r.url)
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(lambda: r.attempts == 1)
+    updated = cb.send({'action': 'update_mr', 'project': 'bundles',
+                       'mr': 'b-1', 'files': {'bundle.yaml': 'id: new\n'}})
+    assert updated['sha'] != mr['sha']  # new commits drop the approval
+    zuul_calls(cb, mr['iid'], 'approve', updated['sha'])
+    assert wait_for(lambda: r.attempts == 2)
+    assert [b['sha'] for b in r.bodies] == [mr['sha'], updated['sha']]
 
 
 # -- a redelivered open_mr keeps the original ----------------------------
 
+def test_a_redelivered_open_mr_keeps_the_original_callback(cb, receiver):
+    first, second = receiver(), receiver()
+    mr = open_bundle(cb, callback_url=first.url)
+    again = open_bundle(cb, callback_url=second.url)
+    assert again['iid'] == mr['iid']
+    zuul_calls(cb, mr['iid'], 'approve', again['sha'])
+    assert wait_for(lambda: first.attempts == 1)
+    time.sleep(0.4)
+    assert second.attempts == 0
 
 
 # -- the URL is never echoed, and Zuul sees nothing new ------------------
@@ -278,3 +362,33 @@ def test_an_old_state_db_gains_the_columns_and_loses_nothing(
         second.stop()
 
 
+def test_a_migrated_db_keeps_callback_state_across_restarts(
+        tmp_path, receiver):
+    path = tmp_path / 'data'
+    first = Running(path, report_users=['zuul'])
+    first.send({'action': 'create_project', 'project': 'bundles',
+                'files': {'README.md': 'x\n'}})
+    first.stop()
+    db = sqlite3.connect(str(path / 'state.db'))
+    db.execute('ALTER TABLE mr RENAME TO mr_current')
+    db.execute(OLD_MR_TABLE)
+    db.execute('DROP TABLE mr_current')
+    db.commit()
+    db.close()
+
+    r = receiver()
+    second = Running(path, report_users=['zuul'])
+    try:
+        new = open_bundle(second, key='b-2', callback_url=r.url)
+        zuul_calls(second, new['iid'], 'approve', new['sha'])
+        assert wait_for(lambda: r.attempts == 1)
+        assert wait_for(delivered(second, 'b-2'))
+    finally:
+        second.stop()
+    third = Running(path, report_users=['zuul'])
+    try:
+        [record] = mr_json(third, 'b-2')['callback']
+        assert record['outcome'] == 'passed'
+        assert record['status'] == 'delivered'
+    finally:
+        third.stop()
