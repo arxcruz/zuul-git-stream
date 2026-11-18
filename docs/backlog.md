@@ -6,6 +6,13 @@ pipelines) and the long-term production work (durable queues, TLS) stay in
 [roadmap.md](roadmap.md); this file is the engineering follow-up list: bugs,
 hardening, specs waiting for code, tooling.
 
+Severity tags: **S1** could break Zuul's contract, leak a secret, let someone
+act as someone else, or hang the server (act soon); **S2** a real gap with
+limited impact or an easy workaround; **S3** polish, speed or nice-to-have.
+**(unverified)** means the tag is a judgment from reading the item, not from
+reproducing the problem or confirming its impact; check it before acting.  A
+sub-item has the tag of the item it is under.
+
 Agents: read this before picking work, and keep it current.  Remove an item
 when it is done, add one when you find something you are not fixing now.
 
@@ -26,11 +33,11 @@ Not yet checked against any implementation (the other groups each passed
 against a throwaway prototype): the git-read-only fix.  Prototype or
 implement it first, and treat a failing test there as possibly a test bug.
 
-- **webhook delivery** (`tests/test_webhooks.py`): one ordered queue per URL,
+- [S2 (unverified)] **webhook delivery** (`tests/test_webhooks.py`): one ordered queue per URL,
   so a dead URL never delays another (and `stop()` ends every thread); no
   `X-Gitlab-Token` header when the token is empty.  A 4xx stays "kept as
   failed, not retried" (already true; pinned).
-- **retry policy** (`tests/test_retry.py`): any Zuul result that is not
+- [S2 (unverified)] **retry policy** (`tests/test_retry.py`): any Zuul result that is not
   SUCCESS and not no-verdict (SKIPPED, RETRY, CANCELED, ABORTED) is a failure,
   so `RETRY_LIMIT`, `ERROR`, `DISK_FULL` and future results are retried and
   escalated instead of vanishing; an unreadable builds API is retried
@@ -41,13 +48,13 @@ implement it first, and treat a failing test there as possibly a test bug.
   `failed: <cause>`.  Needs `RetryPolicy(lookup_attempts=3,
   lookup_backoff=2.0, escalate_attempts=5, escalate_backoff=1.0)`
   (constructor tunables only, no config options).
-- **legacy default branch** (`tests/test_legacy_state.py`): a stored project
+- [S2] **legacy default branch** (`tests/test_legacy_state.py`): a stored project
   whose default branch is invalid (state from before branch validation) is
   warned about once at startup, naming project and branch; operations that
   need the default branch (push without `branch`, tag without `rev`, open_mr
   without `target_branch`) are 409 "project 'x' has an invalid default
   branch '-x'; recreate it"; everything else keeps working.
-- **git read-only check** (`tests/test_git_read_only.py`, 9 inline
+- [S2] **git read-only check** (`tests/test_git_read_only.py`, 9 inline
   `KNOWN_GAP` markers): `server.py:_git` refuses receive-pack by matching the
   literal text in the raw path and query, so a percent-encoded
   `service=git%2Dreceive%2Dpack` (and `%2d`, partial, extra-parameter
@@ -60,20 +67,20 @@ implement it first, and treat a failing test there as possibly a test bug.
 
 ## 2. Follow-ups that come with those fixes
 
-- Sync the docs with each fix, as `AGENTS.md` requires: README, the
+- [S3] Sync the docs with each fix, as `AGENTS.md` requires: README, the
   `git_stream/config.py` docstring, `devenv/git-stream.toml`,
   `docs/security.md`, `docs/zuul-contract.md`.
-- `main()` itself is still untested glue (ordering: seeding happens before the
+- [S3] `main()` itself is still untested glue (ordering: seeding happens before the
   webhook sender starts; the retry policy observes the forge's webhooks).
   Everything it builds goes through the `build_*` functions in
   `git_stream/__main__.py`.
-- `GIT_STREAM_GIT_TOKENS` is read by `config.load` but there is no `git`
+- [S3] `GIT_STREAM_GIT_TOKENS` is read by `config.load` but there is no `git`
   section, so setting it would fail; git tokens are not wired anywhere.
   Either remove the variable or implement git tokens.
-- Stale statements: the comment in `git_stream/repos.py` (`Repo.create`) says
+- [S3] Stale statements: the comment in `git_stream/repos.py` (`Repo.create`) says
   git-stream "enforces the git token"; it does not.  Re-read `docs/security.md`
   ("Done", "Planned") against the code once the items above land.
-- Starting with an invalid project directory in the seed directory ends in a
+- [S3] Starting with an invalid project directory in the seed directory ends in a
   traceback; it should be a plain message that says what to do.
 
 ## 3. Audit findings with no test or spec yet
@@ -81,23 +88,23 @@ implement it first, and treat a failing test there as possibly a test bug.
 From the audit; none of these has a test.  Specify with a test first, as for
 section 1.
 
-- There is no cap on concurrent connections: each one is a thread for as
+- [S1] There is no cap on concurrent connections: each one is a thread for as
   long as it lasts (at most `read_timeout` when silent, `body_timeout` when
   trickling).  60 silent clients cost 60 threads for 5 seconds in a real
   attack run, and all were released.  A cap, or a pool, would bound it.
-- Request limits (done) leave these open: the total deadline covers the body,
+- [S1] Request limits (done) leave these open: the total deadline covers the body,
   not the request line and headers, which the standard library reads with
   only the per-receive `read_timeout` (a client can trickle them); `git
   http-backend` (`server.py:_git`) runs with no timeout and its whole output
   is buffered in memory; a 413 closes the connection without draining the
   rest of the upload, so a client still sending may see a reset instead of
   the response.
-- `repos.GitError` is never caught, so a git failure (for example a revision
+- [S2] `repos.GitError` is never caught, so a git failure (for example a revision
   the client named that does not exist) is a 500 `internal error`; it should
   be a 4xx where the cause is the client's (branch and tag names and an
   existing tag are done; other causes remain).  Its text, which includes git's arguments and stderr, no
   longer reaches the client.
-- Found reviewing branch and tag name validation (all unspecified):
+- [S2] Found reviewing branch and tag name validation (all unspecified):
   - Falsy non-string values (`0`, `false`, `[]`) for `branch`, `target_branch`
     and `tag`'s `rev` fall back to the default branch silently, because the
     handlers use `x or default`; only truthy values are validated.  A decision
@@ -113,28 +120,31 @@ section 1.
     calls `ref.startswith`.  The same holds for a non-string `start` on
     `push`.
 
-- HTML pages are built with string concatenation and `html.escape`; not every
+- [S1 (unverified)] HTML pages are built with string concatenation and `html.escape`; not every
   call site was reviewed, so one missed `e()` could be stored XSS from a note
   body or MR title.  Review all of them and add a test with hostile text.
-- Token checks use `==` and a linear scan; use `hmac.compare_digest`.
-- `seen` (message ids) is a list capped at 1000 with an O(n) membership test
+- [S1] Token checks use `==` and a linear scan: stream tokens in
+  `Forge.stream_user_for_token` (`forge.py`), and `user_for_token`'s dict
+  lookup; use `hmac.compare_digest` over every configured token.  Why: timing
+  can leak a token to a client that can reach the stream.
+- [S2] `seen` (message ids) is a list capped at 1000 with an O(n) membership test
   and a database write per id, so a replay older than 1000 messages is
   accepted again.
-- `mr_json` runs `merge_tree` on every call, so listing N merge requests
+- [S2] `mr_json` runs `merge_tree` on every call, so listing N merge requests
   spawns N git processes while holding the forge lock; `_dispatch` also holds
   the lock around git subprocesses and page rendering.
-- Subprocess calls (`git http-backend` and the `Repo` helpers) have no
+- [S1] Subprocess calls (`git http-backend` and the `Repo` helpers) have no
   timeout, so a hung git process holds a request thread, and the forge lock if
   it is held.
-- Growth is unbounded: notes, the `seen` ids, the metrics database and webhook
+- [S2] Growth is unbounded: notes, the `seen` ids, the metrics database and webhook
   history (retention policy, or a cleanup of old bundle MRs, which the roadmap
   already lists).
-- Fields that are not GitLab's reach Zuul's webhooks: `mr_json` also builds the
+- [S2 (unverified)] Fields that are not GitLab's reach Zuul's webhooks: `mr_json` also builds the
   webhook attributes, so `stream_key`, `max_attempts`, `escalated` and the
   whole `escalation` record are sent to Zuul.  Only `callback` is removed.
   Check this against [zuul-contract.md](zuul-contract.md) and the contract
   tests, then drop them from `_hook_mr_attrs` if Zuul doesn't need them.
-- Callbacks, found in review, not done:
+- [S2] Callbacks, found in review, not done:
   - A slow-drip receiver can keep a delivery thread for far longer than the
     10 s timeout, which is per socket operation.  Add a total deadline.
   - A callback stays `status: null` forever if git-stream exits before the
@@ -146,7 +156,7 @@ section 1.
   - `tests/test_callbacks.py` leans on sleeps and wall-clock bounds (the
     hanging receiver, "nothing arrives" waits), which may be flaky on a slow
     or loaded machine.
-- `callback_url` deliveries (`git_stream/callbacks.py`) run one thread each, so
+- [S2] `callback_url` deliveries (`git_stream/callbacks.py`) run one thread each, so
   there is no limit on how many run at once, and two callbacks of the same MR
   (say `escalated`, then `passed`) are not guaranteed to arrive in the order
   they fired, so receivers should order by the `time` field.  A per-MR queue
@@ -154,65 +164,58 @@ section 1.
   done, by decision: an allowlist of callback URLs (any stream sender can make
   git-stream POST to any http(s) host, internal ones included), an auth header
   on callbacks, retries, durable delivery, and per-failure events.
-- The seeder is not fault-tolerant against pre-existing state (the "Known
+- [S2] The seeder is not fault-tolerant against pre-existing state (the "Known
   gap" in `AGENTS.md`): an empty `state.db` makes it recreate projects whose
   repositories exist, and `update-ref` crash-loops.
-- `retry.results` assumes Zuul returns builds newest first and that `change`
+- [S1 (unverified)] `retry.results` assumes Zuul returns builds newest first and that `change`
   and `patchset` mean the MR id and sha; only the parameter and field names
   are checked against Zuul's code, not the ordering.  Escalation URLs get no
   authentication header, and `[retry] zuul_api` accepts any scheme with no TLS
   check.
-- `devenv/common.sh` runs `git clone "$ZUUL_REPO"` and
+- [S3] `devenv/common.sh` runs `git clone "$ZUUL_REPO"` and
   `git checkout "$ZUUL_REF"` without `--`; the values come from that file
   (operator-controlled), so the risk is low.
-- Stream tokens are compared with `==` in `Forge.stream_user_for_token`
-  (`forge.py`), which is not constant-time, and the same goes for
-  `user_for_token`'s dict lookup; use `hmac.compare_digest` over every
-  configured token.  Why: timing can leak a token to a client that can reach
-  the stream.
-- Two users can be given the same stream token and the first one in the map
+- [S1] Two users can be given the same stream token and the first one in the map
   silently wins (`stream_user_for_token`), so the second user's messages act
   as the first.  Refuse duplicate tokens at startup (`config.py` or
   `build_forge`) and say which users share one.
-- Duplicated or inconsistent patterns: the stream handlers `_approve`,
+- [S3] Duplicated or inconsistent patterns: the stream handlers `_approve`,
   `_unapprove`, `_merge` and `_state` each repeat `_require(msg, 'mr')`; token
   parsing is duplicated between `_user` and `_stream_user` with inverted
   token/user maps; `server.py` imports the private `stream._labels`; status
   and message conventions differ (`'404 Project Not Found'` against
-  `'invalid project name'`, double approval is 401); pagination does unchecked
-  `int()`.
-- The demo UI (`devenv/demo-ui/app.py`, 357 lines) has no tests.
-- Missing docs: operations (backup, restore, upgrade, migration, data
-  retention), a changelog, a LICENSE file (`pyproject.toml` declares
-  Apache-2.0), a sender-side spec for `/api/stream` (a schema or OpenAPI
+  `'invalid project name'`, double approval is 401).
+- [S3] The demo UI (`devenv/demo-ui/app.py`, 357 lines) has no tests.
+- [S3] Missing docs: operations (backup, restore, upgrade, migration, data
+  retention), a changelog, a sender-side spec for `/api/stream` (a schema or OpenAPI
   document; today the vocabulary lives in the `stream.py` docstring and the
   README), and a note in `docs/zuul-contract.md` for the retry policy's use of
   Zuul's builds API.
 
 ## 4. Tooling and process
 
-- No CI configuration yet; the two jobs (lint, test) are written up in
+- [S2] No CI configuration yet; the two jobs (lint, test) are written up in
   [ci.md](ci.md).  When a platform is chosen, port them.  Optionally add a
   scheduled run so contract drift against Zuul's latest commit shows up
   without a push.
-- Optionally run `scripts/check.sh` from a pre-commit hook so the gate is
+- [S3] Optionally run `scripts/check.sh` from a pre-commit hook so the gate is
   automatic.
-- Lint: `line-length` is 88 because 11 lines exceed 79 (`AGENTS.md` asks for
+- [S3] Lint: `line-length` is 88 because some lines exceed 79 (`AGENTS.md` asks for
   PEP 8); wrap them and tighten it.  Import sorting (`I`) is off because it
   would reorder most files.  `pyproject.toml` ignores `F401` in
   `git_stream/metrics.py` and `tests/test_metrics.py` (unused imports); delete
   the imports and the ignores.
-- The serial gate is slow because many tests wait on purpose (timeouts, retry
+- [S3] The serial gate is slow because many tests wait on purpose (timeouts, retry
   backoff).  The `slow` marker lets the fast loop skip the slowest of them, but
   the rest still take most of the serial time (`pytest --durations=25` shows
   where); trimming those waits would shorten both.
-- Stop hook (`.claude/hooks/stop-checks.py`), from the branch review:
+- [S3] Stop hook (`.claude/hooks/stop-checks.py`), from the branch review:
   `fingerprint()` reads every changed file whole, so a very large untracked
   file not covered by `.gitignore` slows every Stop (hash a size and mtime
   above a threshold); the `git` calls have no timeout (only the ruff probe and
   the checks do); and no test runs the hook against the real ruff and pytest,
   only a stub (the wiring was checked by hand on this branch).
-- `/spec` skill (`.claude/skills/spec/SKILL.md`), from the branch review:
+- [S3] `/spec` skill (`.claude/skills/spec/SKILL.md`), from the branch review:
   the `allowed-tools` patterns (`Write(docs/specs/*)`, `Bash(git switch -c
   feat/*)`) were never run in a live session, so whether Claude Code accepts
   the space-separated list, rejects a `..` path, or refuses a start point
@@ -220,4 +223,4 @@ section 1.
   `main` and tighten the patterns if any of these slips through.  Several
   tests in `tests/test_spec_skill.py` grep the prose for keywords ("never",
   "recommend", "plan"), so they show the skill mentions a behavior, not that
-  it demands it. 
+  it demands it.
