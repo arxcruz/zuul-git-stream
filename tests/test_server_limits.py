@@ -142,6 +142,7 @@ def test_a_huge_chunk_size_is_refused_before_it_is_read(limited, conn):
 
 # -- patience ----------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_stalled_body_gets_408(limited, conn):
     conn.send(head(length=100) + b'x' * 10)  # 90 bytes never arrive
     status, body = conn.response()
@@ -150,17 +151,20 @@ def test_a_stalled_body_gets_408(limited, conn):
     assert health(limited) == 200
 
 
+@pytest.mark.slow
 def test_a_stalled_chunk_gets_408(limited, conn):
     conn.send(head(chunked=True) + b'10\r\nabc')  # 13 bytes never arrive
     assert conn.response()[0] == 408
 
 
+@pytest.mark.slow
 def test_a_stalled_request_line_is_dropped(limited, conn):
     conn.send(b'POST /api/str')
     status, _ = conn.response()
     assert status in (None, 408)
 
 
+@pytest.mark.slow
 def test_an_idle_keep_alive_connection_is_closed(limited, conn):
     conn.send(b'GET /health HTTP/1.1\r\nHost: x\r\n\r\n')
     assert conn.response()[0] == 200
@@ -201,6 +205,7 @@ def test_an_invalid_content_length_is_a_client_error(limited, conn, length):
     assert 'invalid Content-Length' in json.loads(body)['message']
 
 
+@pytest.mark.slow
 def test_a_trickling_body_hits_the_total_deadline(make_forge):
     """One byte now and then never trips read_timeout; body_timeout does."""
     import time

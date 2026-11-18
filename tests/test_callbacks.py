@@ -261,6 +261,7 @@ def dead_port():
     return port
 
 
+@pytest.mark.slow
 def test_a_failing_receiver_gets_one_attempt_and_is_recorded(cb, receiver):
     r = receiver(status=500)
     mr = open_bundle(cb, callback_url=r.url)
