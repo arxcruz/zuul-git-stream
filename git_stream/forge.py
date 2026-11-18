@@ -491,6 +491,7 @@ class Forge:
     def _hook_mr_attrs(self, p, mr):
         attrs = copy.deepcopy(self.mr_json(p, mr))
         attrs.pop('author')
+        attrs.pop('callback')  # the announcer's business, not Zuul's
         attrs['author_id'] = user(mr['author'])['id']
         attrs['url'] = attrs.pop('web_url')
         attrs['labels'] = [{'title': label} for label in mr['labels']]
@@ -750,11 +751,12 @@ class Forge:
             self._emit_mr(p, mr, 'approved', by)
             if by in self.report_users:
                 # Zuul only approves when every job of the version passed.
-                self.notify_outcome(p, mr, 'passed',
-                                    approved_by=list(mr['approved_by']))
+                self.notify_outcome(
+                    p, mr, 'passed',
+                    {'approved_by': list(mr['approved_by'])})
             return self.approvals_json(p, mr)
 
-    def notify_outcome(self, p, mr, outcome, **fields):
+    def notify_outcome(self, p, mr, outcome, fields=None):
         """POST a final outcome of the MR to its callback_url, if it has one.
 
         Each outcome fires at most once per head sha.  The delivery runs in
@@ -776,7 +778,7 @@ class Forge:
         body = {'project': p['name'], 'mr': mr['iid'], 'key': mr.get('key'),
                 'title': mr['title'], 'url': self.mr_url(p, mr), 'sha': sha,
                 'time': record['time']}
-        body.update(fields)
+        body.update(fields or {})
         body.update(event='outcome', outcome=outcome)
 
         def done(status):

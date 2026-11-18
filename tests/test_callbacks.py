@@ -21,7 +21,8 @@ import urllib.request
 import pytest
 
 from conftest import API_TOKEN, Running, rejected, wait_for
-from test_retry import FakeZuul
+from git_stream.retry import RetryPolicy
+from test_retry import FakeZuul, report
 
 SECRET_URL = '/hook?token=s3cret-callback-token'
 
@@ -155,8 +156,32 @@ def test_a_human_approval_is_not_a_pass(cb, receiver):
 
 # -- scenario 2: escalated -----------------------------------------------
 
+def test_an_escalation_posts_escalated_to_its_callback(cb, receiver, zuul):
+    r = receiver()
+    mr = open_bundle(cb, callback_url=r.url, max_attempts=1)
+    zuul.run(**{'bundle-api': 'SUCCESS', 'bundle-security': 'FAILURE'})
+    policy = RetryPolicy(cb.forge, zuul.url, max_attempts=3, settle=0)
+    report(cb, policy, mr['iid'], 'Build failed.')
+    assert wait_for(lambda: r.attempts == 1)
+    [body] = r.bodies
+    # The recorded escalation, as is, plus the outcome.
+    [recorded] = cb.forge.escalations()
+    assert body['event'] == 'outcome' and body['outcome'] == 'escalated'
+    for field in ('project', 'mr', 'key', 'title', 'url', 'sha', 'time',
+                  'max_attempts', 'failing'):
+        assert body[field] == recorded[field], field
+    assert [(j['job'], j['attempts']) for j in body['failing']] == [
+        ('bundle-security', 1)]
 
 
+def test_no_callback_for_a_failed_attempt_or_a_rerun(cb, receiver, zuul):
+    r = receiver()
+    mr = open_bundle(cb, callback_url=r.url)  # 3 attempts: first is a rerun
+    zuul.run(**{'bundle-security': 'FAILURE'})
+    policy = RetryPolicy(cb.forge, zuul.url, max_attempts=3, settle=0)
+    report(cb, policy, mr['iid'], 'Build failed.')
+    time.sleep(0.4)
+    assert r.attempts == 0
 
 
 # -- scenario 3: no callback_url behaves as today ------------------------
@@ -259,6 +284,17 @@ def test_a_hanging_callback_delays_neither_zuul_nor_other_mrs(cb, receiver):
 
 # -- once per outcome per head sha ---------------------------------------
 
+def test_escalated_then_passed_sends_both_in_order(cb, receiver, zuul):
+    r = receiver()
+    mr = open_bundle(cb, callback_url=r.url, max_attempts=1)
+    zuul.run(**{'bundle-security': 'FAILURE'})
+    policy = RetryPolicy(cb.forge, zuul.url, max_attempts=3, settle=0)
+    report(cb, policy, mr['iid'], 'Build failed.')
+    assert wait_for(lambda: r.outcomes() == ['escalated'])
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    assert wait_for(lambda: r.outcomes() == ['escalated', 'passed'])
+    assert [x['outcome'] for x in mr_json(cb)['callback']] == [
+        'escalated', 'passed']
 
 
 def test_approve_unapprove_approve_sends_passed_once(cb, receiver):
@@ -300,6 +336,26 @@ def test_a_redelivered_open_mr_keeps_the_original_callback(cb, receiver):
 
 # -- the URL is never echoed, and Zuul sees nothing new ------------------
 
+def test_the_url_is_never_shown_and_zuul_sees_no_new_field(
+        cb, receiver, zuul):
+    r = receiver(status=500)
+    mr = open_bundle(cb, callback_url=r.url, max_attempts=1)
+    zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
+    zuul.run(**{'bundle-security': 'FAILURE'})
+    policy = RetryPolicy(cb.forge, zuul.url, max_attempts=3, settle=0)
+    report(cb, policy, mr['iid'], 'Build failed.')
+    assert wait_for(delivered(cb, count=2))
+    assert 'callback' not in json.dumps(cb.hooks)  # webhooks to Zuul
+    seen = [json.dumps(mr_json(cb))]
+    for path in ('/api/stream/escalations', '/escalations',
+                 '/bundles/merge_requests/%s' % mr['iid'], '/',
+                 '/api/v4/projects/bundles/merge_requests/%s' % mr['iid']):
+        with urllib.request.urlopen(cb.url + path) as resp:
+            seen.append(resp.read().decode())
+    seen.append(json.dumps(cb.hooks))
+    for text in seen:
+        assert 's3cret-callback-token' not in text
+        assert '/hook' not in text
 
 
 # -- the small migration: an old state.db --------------------------------
