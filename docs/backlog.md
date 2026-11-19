@@ -101,6 +101,9 @@ section 1.
   Measure it with a real demo run under load, and check the refusal reaches a
   client in a Linux container (it was checked with curl on macOS only).  The
   options are a higher default or exempting git smart HTTP from the cap.
+- [S3] A refused connection (`max_connections`) is only a debug log line, so an
+  operator cannot see that the cap is being hit.  The server has a metrics
+  object; a refusal counter there would show it.
 - [S2] `repos.GitError` is never caught, so a git failure (for example a revision
   the client named that does not exist) is a 500 `internal error`; it should
   be a 4xx where the cause is the client's (branch and tag names and an
@@ -262,3 +265,8 @@ section 1.
   every command the skill runs matches a pattern.  `fnmatch` only
   approximates Claude Code's own matching, which is what the open points
   above are about.
+- [S2] `/spec` fails in a worktree (`.claude/skills/spec/SKILL.md`): it runs only
+  from `main` with a clean tree, and no worktree can have `main` (decision 14).
+  Workaround: write `docs/specs/<name>.md` by hand, in the skill's format, on
+  the feature branch.  Fix: let `/spec` run on a fresh feature branch or on a
+  detached HEAD at `main`.

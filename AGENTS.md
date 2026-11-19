@@ -350,6 +350,8 @@ session in the same folder.
   worktree, so `/merge` (which runs `git switch main`) fails while another
   worktree has it, and a session left on `main` after its merge blocks the
   other's `git switch main` until it switches away.
+- **`/spec` cannot run in a worktree yet.**  Write the spec file by hand on the
+  feature branch, in the skill's format (see [docs/backlog.md](docs/backlog.md)).
 - **The original checkout stays on a detached HEAD** (`git switch --detach`)
   so that `main` is free for whichever worktree merges.  Nobody commits there:
   the `.claude/hooks/no-commit-on-main.py` hook now refuses `git commit` on a
