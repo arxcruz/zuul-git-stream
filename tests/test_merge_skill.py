@@ -36,6 +36,7 @@ TOOLS = [
     'Bash(git log --oneline main..HEAD)',
     'Bash(git log --oneline -3)',
     'Bash(git merge-tree --write-tree main HEAD)',
+    'Bash(git diff --name-only --no-renames main...HEAD)',
     'Bash(scripts/check.sh)',
     'Bash(git switch main)',
     'Bash(git merge --no-ff -m *)',
@@ -45,10 +46,19 @@ TOOLS = [
 # The commands of the flow, as the skill writes them (<branch> is the
 # current branch, <summary> a one-line summary).
 MERGE_TREE = 'git merge-tree --write-tree main HEAD'
+DIFF = 'git diff --name-only --no-renames main...HEAD'
 SWITCH = 'git switch main'
 MERGE = 'git merge --no-ff -m "Merge <branch>: <summary>" --end-of-options <branch>'
 DELETE = 'git branch -d --end-of-options <branch>'
 LOG = 'git log --oneline -3'
+
+# The paths the sandbox protects, as docs/specs/merge-protected-path-check.md
+# lists them: relative to the repository root, a trailing "/" for a
+# directory, "*" within one path segment.  .git/hooks and .git/config are
+# not here: git never lists anything under .git/ in a diff.
+PROTECTED = ['.claude/settings*.json', '.mcp.json', '.claude/skills/',
+             '.claude/agents/', '.claude/hooks/']
+PHRASE = 'merge from a terminal outside claude code'
 
 
 def read(path):
@@ -142,7 +152,7 @@ def test_every_command_of_the_flow_is_allowed(skill):
     meta, body = skill
     patterns = [t[len('Bash('):-1] for t in allowed(meta)
                 if t.startswith('Bash(')]
-    for command in (MERGE_TREE, SWITCH, MERGE, DELETE, LOG,
+    for command in (MERGE_TREE, DIFF, SWITCH, MERGE, DELETE, LOG,
                     'scripts/check.sh'):
         assert any(fnmatch.fnmatchcase(command, p) for p in patterns), (
             '%r is not in allowed-tools' % command)
@@ -161,6 +171,52 @@ def test_it_refuses_on_main_a_dirty_tree_another_branch_or_an_unclean_merge(
     assert 'must equal the current branch' in text
     assert 'no commits' in text and 'nothing to merge' in text
     assert 'conflict' in text and MERGE_TREE in body
+
+
+def section_one(body):
+    return body.split('## 2.')[0]
+
+
+def test_the_protected_path_check_runs_before_the_gate(skill):
+    _, body = skill
+    assert DIFF in body
+    assert body.index(DIFF) < body.index('scripts/check.sh')
+    assert body.index(DIFF) < body.index('## 2.')
+    # It fires after the existing refusals.
+    assert body.index(MERGE_TREE) < body.index(DIFF)
+
+
+def test_it_refuses_with_the_terminal_phrase_and_lists_the_paths(skill):
+    _, body = skill
+    text = words(section_one(body))
+    assert PHRASE in text
+    assert 'protected' in text
+    assert 'list' in text and 'matching path' in text
+    assert 'one per line' in text
+
+
+def test_the_skill_names_every_protected_path(skill):
+    _, body = skill
+    for path in PROTECTED:
+        assert '`%s`' % path in body, path
+
+
+def test_the_protected_table_follows_the_spec_matching_rules(skill):
+    _, body = skill
+    for path in PROTECTED:
+        assert path.endswith('/') or path.endswith('.json'), path
+    # git never lists .git/ in a diff, so an entry there could not match.
+    assert '`.git/hooks' not in body and '`.git/config' not in body
+    assert 'within one path segment' in words(body)
+
+
+def test_a_failed_diff_is_a_refusal_not_a_pass(skill):
+    _, body = skill
+    text = words(section_one(body))
+    # words() lowercases, and DIFF ends in "HEAD".
+    after = text[text.index(DIFF.lower()):]
+    assert re.search(r'if (that|the diff) command fails', after)
+    assert 'report the error' in after and 'stop' in after
 
 
 def test_the_gate_runs_on_the_branch_first_and_on_main_after(skill):
@@ -333,6 +389,71 @@ def test_a_branch_named_like_an_option_stays_a_branch(repo):
     assert '-x' not in git(repo, 'branch', '--list').stdout
 
 
+# -- the protected-path diff does what the skill assumes -------------------
+
+def commit_file(repo, path, text):
+    full = repo / path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(text)
+    git(repo, 'add', path)
+    git(repo, 'commit', '-qm', 'touch ' + path)
+
+
+def changed(repo):
+    out = git(repo, *prescribed(DIFF, 'feat')).stdout
+    return sorted(out.splitlines())
+
+
+def test_the_diff_lists_changed_protected_paths(repo):
+    assert DIFF in read(SKILL)
+    git(repo, 'switch', '-qc', 'feat')
+    commit_file(repo, '.claude/settings.json', '{}\n')
+    commit_file(repo, '.mcp.json', '{}\n')
+    assert changed(repo) == ['.claude/settings.json', '.mcp.json']
+
+
+def test_the_diff_lists_the_old_path_of_a_rename(repo):
+    assert DIFF in read(SKILL)
+    commit_file(repo, '.mcp.json', '{"a": 1}\n')
+    git(repo, 'switch', '-qc', 'feat')
+    git(repo, 'mv', '.mcp.json', 'x.json')
+    git(repo, 'commit', '-qm', 'rename')
+    assert changed(repo) == ['.mcp.json', 'x.json']
+
+
+def test_the_diff_lists_a_deleted_protected_path(repo):
+    assert DIFF in read(SKILL)
+    commit_file(repo, '.claude/hooks/h.py', 'pass\n')
+    git(repo, 'switch', '-qc', 'feat')
+    git(repo, 'rm', '-q', '.claude/hooks/h.py')
+    git(repo, 'commit', '-qm', 'delete')
+    assert changed(repo) == ['.claude/hooks/h.py']
+
+
+def test_the_diff_of_an_unrelated_branch_lists_only_its_own_file(repo):
+    assert DIFF in read(SKILL)
+    branch_with(repo, 'feat', 'b.txt', 'two\n')
+    assert changed(repo) == ['b.txt']
+
+
+def test_the_diff_fails_when_main_does_not_exist(repo):
+    assert DIFF in read(SKILL)
+    branch_with(repo, 'feat', 'b.txt', 'two\n')
+    git(repo, 'branch', '-m', 'main', 'trunk')
+    proc = git(repo, *prescribed(DIFF, 'feat'), check=False)
+    assert proc.returncode != 0
+
+
+def test_the_diff_ignores_changes_made_on_main_after_the_fork(repo):
+    # Three dots: the branch's own changes, not what main did since.
+    assert DIFF in read(SKILL)
+    branch_with(repo, 'feat', 'b.txt', 'two\n')
+    git(repo, 'switch', '-q', 'main')
+    commit_file(repo, '.mcp.json', '{}\n')
+    git(repo, 'switch', '-q', 'feat')
+    assert changed(repo) == ['b.txt']
+
+
 # -- the branch-guard hook lets the flow through --------------------------
 
 def run_hook(repo, command):
@@ -345,7 +466,7 @@ def run_hook(repo, command):
 
 
 @pytest.mark.parametrize('command', [
-    MERGE_TREE, SWITCH, MERGE, DELETE, LOG, 'git status --short',
+    MERGE_TREE, DIFF, SWITCH, MERGE, DELETE, LOG, 'git status --short',
     'scripts/check.sh'])
 def test_the_hook_allows_every_command_of_the_flow_on_main(repo, command):
     assert command in read(SKILL).split('---\n', 2)[2]

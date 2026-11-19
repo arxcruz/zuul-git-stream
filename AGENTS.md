@@ -419,9 +419,24 @@ worked; `main` was free because the original checkout was detached.
   `scripts/check.sh` on the branch first; then, in the original checkout,
   `git switch main`, `git merge --no-ff <branch>`, `git branch -d <branch>`,
   `scripts/check.sh` on `main`, and finally `git switch --detach` so `main` is
-  free for the next worktree.  That `.mcp.json` and the other protected paths behave
-  the same is inferred from the sandbox docs, not probed, and the skill does
-  not check for it yet (backlog).
+  free for the next worktree.  The skill now checks the branch's diff
+  (`git diff --name-only --no-renames main...HEAD`) before the gate and
+  refuses with "merge from a terminal outside Claude Code" when it touches
+  a `settings*.json` file in `.claude/`, `.mcp.json`, `.claude/skills/`,
+  `.claude/agents/` or `.claude/hooks/` (spec:
+  `docs/specs/merge-protected-path-check.md`).
+  Observed (Nov 19): Bash cannot create a file in, or rename a file in,
+  `.claude/skills/`, `.claude/hooks/` or `.claude/agents/` ("Operation not
+  permitted").  Inferred, not probed: that `/merge` fails on a branch that
+  changes them, and that `.mcp.json` and the other `settings*.json` names
+  behave like `.claude/settings.json` (backlog).  `.git/hooks` and
+  `.git/config` are not checked: git never lists them in a diff.  Observed
+  (Nov 19): in a real `/merge` in a fresh sandboxed session on a branch that
+  changed `.claude/skills/merge/SKILL.md`, the skill refused before the gate
+  and named that path; the glob and the non-matches are still unobserved
+  (backlog).  Observed (Nov 19): the Edit tool wrote `.claude/skills/merge/SKILL.md` in a
+  sandboxed session, so the sandbox's write protection of `.claude/skills/`,
+  `hooks/` and `agents/` applies to Bash, not to the Edit tool.
 - **`git branch -d` warns about `.git/config` in `/merge`.**  Observed twice,
   in the original checkout and in a linked worktree: `git branch -d` printed
   "could not lock config file .../.git/config" and "update of config-file

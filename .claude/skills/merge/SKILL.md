@@ -3,7 +3,7 @@ name: merge
 description: Merge the current branch into main with --no-ff after the full gate, delete it with the safe branch -d, and run the gate on main. Typing /merge is the approval to merge. It never pushes.
 argument-hint: "[branch]"
 disable-model-invocation: true
-allowed-tools: Bash(git branch --show-current) Bash(git status --short) Bash(git log --oneline main..HEAD) Bash(git log --oneline -3) Bash(git merge-tree --write-tree main HEAD) Bash(scripts/check.sh) Bash(git switch main) Bash(git merge --no-ff -m *) Bash(git branch -d --end-of-options *)
+allowed-tools: Bash(git branch --show-current) Bash(git status --short) Bash(git log --oneline main..HEAD) Bash(git log --oneline -3) Bash(git merge-tree --write-tree main HEAD) Bash(git diff --name-only --no-renames main...HEAD) Bash(scripts/check.sh) Bash(git switch main) Bash(git merge --no-ff -m *) Bash(git branch -d --end-of-options *)
 ---
 
 Merge the current branch into `main`.  The user typing `/merge` is their
@@ -26,7 +26,27 @@ Refuse and say why, doing nothing else, if any of these holds:
 - the branch has no commits ahead of `main`: there is nothing to merge;
 - the merge would not be clean: run `git merge-tree --write-tree main HEAD`.
   Exit status 1 means a conflict; name the files from its output.  Any other
-  failure is an error to report.
+  failure is an error to report;
+- the branch changes a protected path, which the sandbox cannot rewrite, so
+  `git switch main` would fail halfway.  Run
+  `git diff --name-only --no-renames main...HEAD` and compare each line with
+  the table below.  If any line matches, refuse, list the matching paths one per line, and
+  say: "merge from a terminal outside Claude Code" (the manual steps are in
+  AGENTS.md, "Permissions and sandbox").  Do not run them.  If that command
+  fails, report the error and stop: never assume the branch is safe.
+
+| Protected path | Matches |
+|----------------|---------|
+| `.claude/settings*.json` | `*` matches within one path segment, never across `/` |
+| `.mcp.json` | exactly that path |
+| `.claude/skills/` | everything under it |
+| `.claude/agents/` | everything under it |
+| `.claude/hooks/` | everything under it |
+
+The paths are relative to the repository root, as the command prints them.  A
+nested path such as `sub/.mcp.json` does not match, and neither do case
+variants.  The reasons, and what is observed versus inferred, are in
+`docs/specs/merge-protected-path-check.md`.
 
 In every command below, `<branch>` is the current branch name from above,
 never the argument.

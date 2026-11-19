@@ -250,6 +250,9 @@ section 1.
   allow patterns: whether `git merge --no-ff -m x b && git push` is split
   before matching, so that the push is not covered by the
   `git merge --no-ff -m *` pattern.
+  The `git diff --name-only --no-renames main...HEAD` pattern ran once in a
+  live `/merge` (the Nov 19 real-run proof, in a fresh sandboxed session)
+  without error; whether it needed a permission prompt was not recorded.
   The gate on the branch does not include what `main` gained since the branch
   started; the gate on `main` after the merge covers that, and a red result
   there leaves the merge on local `main` for the user to deal with.  Check
@@ -292,15 +295,12 @@ section 1.
   Workaround: write `docs/specs/<name>.md` by hand, in the skill's format, on
   the feature branch.  Fix: let `/spec` run on a fresh feature branch or on a
   detached HEAD at `main`.
-- [S2] `/merge` cannot merge a branch that changes a protected path
-  (`.claude/skills/merge/SKILL.md`, decision 15).  Observed: `/merge` of
-  `chore/sandbox-settings` in a sandboxed session failed at `git switch main`,
-  because the sandbox denied the unlink of `.claude/settings.json` (a
-  protected path); the merge aborted on the local change and nothing was
-  merged.  It was finished by hand from a normal terminal.  Inferred from the
-  sandbox docs, not probed: the same applies to any branch whose diff touches
-  `.claude/settings*.json`, `.mcp.json` or the other protected paths.  Fix:
-  before the gate, have the skill check `git diff --name-only main...HEAD`
-  for protected paths and refuse with "merge from a terminal outside Claude
-  Code".  The skill is not changed yet; its `allowed-tools` need the new
-  command, and `tests/test_merge_skill.py` compares them with an exact list.
+- [S3] Probe `.mcp.json` and the other `.claude/settings*.json` names under a
+  real `/merge` (`docs/specs/merge-protected-path-check.md`).  The skill now
+  refuses a branch whose diff touches them, but only `.claude/settings.json`
+  is observed to break `git switch main`; the other names are inferred from
+  the sandbox docs.  `.claude/skills/`, `.claude/hooks/` and
+  `.claude/agents/` are observed write-protected for Bash (create and rename
+  blocked, Nov 19), but `/merge` has not been run on a branch that changes
+  them.  Run it on a throwaway branch for each, then move the entry to
+  observed in the spec's table, or drop an entry that does not break.
