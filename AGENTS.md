@@ -90,8 +90,10 @@ persistent failures are escalated (Jira later).
 A Claude Code hook enforces the first rule: `.claude/hooks/no-commit-on-main.py`
 (a `PreToolUse` hook on the Bash tool, configured in `.claude/settings.json`)
 blocks `git commit` and `git push` while the repository is on `main` or
-`master`, and says to run `git switch -c <type>/<topic>`.  `git switch -c` and
-`git checkout -b` are never blocked.  It is a guardrail, not a security
+`master`, and `git commit` on a detached HEAD (except while a rebase,
+cherry-pick, merge or revert waits on a conflict, which leaves HEAD detached
+on purpose), and says to run `git switch -c <type>/<topic>`.  `git switch -c`
+and `git checkout -b` are never blocked.  It is a guardrail, not a security
 boundary (it does not catch aliases, scripts that call git themselves, or
 `git push origin main` from another branch), and it is covered by
 `tests/test_branch_guard_hook.py`.  A session that started before
@@ -106,8 +108,10 @@ check fails it blocks the stop and hands you the output; fix it and finish
 again.  It does nothing on `main`/`master`, never edits a tracked file,
 skips a tree it already checked (state in `$TMPDIR/git-stream-stop-hook/`),
 lets an unchanged failing tree through rather than blocking forever, and fails
-open (a note on stderr) when the venv, ruff or time is missing.  **It is not
-the gate**: it skips the slow tests, so only `scripts/check.sh` means done.
+open (a note on stderr) when ruff or time is missing.  A missing `.venv`
+(git-ignored, so every new worktree starts without one) is the exception: it
+blocks once per tree and names the setup commands below.  **It is not the
+gate**: it skips the slow tests, so only `scripts/check.sh` means done.
 Covered by `tests/test_stop_hook.py`; the reasons are in
 [docs/decisions.md](docs/decisions.md) (decision 13).
 
@@ -171,6 +175,8 @@ tests/
   test_branch_guard_hook.py  the hook that blocks commits on main
   test_review_hook.py     the hook that keeps the branch-reviewer read-only
   test_stop_hook.py       the Stop hook that runs the fast checks
+  test_new_worktree.py    scripts/new-worktree.sh: refusals, venv, cleanup hint
+  test_worktree_docs.py   the Worktrees section, decision 14, the backlog item
   test_spec_skill.py      the /spec skill: frontmatter, tools, spec format
   test_merge_skill.py     the /merge skill: tools, flow, git behavior, hook
   test_stream_identity.py who a stream message acts as (token, not "author")
@@ -180,6 +186,7 @@ tests/
                           mostly specs for behavior not built yet (the backlog)
   pending.txt             the tests that are strict xfails until built
 scripts/check.sh          the "run before saying done" gate (lint + all tests)
+scripts/new-worktree.sh   a sibling worktree on a new branch, with its own .venv
 .claude/                  project Claude Code config: settings.json, hooks/,
                           agents/branch-reviewer.md (read-only reviewer),
                           skills/review/ (the /review [base] command),
@@ -318,6 +325,45 @@ curl -s 'localhost:8090/api/v4/projects/bundles/merge_requests?per_page=1'
 ```
 
 Quote URLs containing `?` in zsh, or the shell globs them.
+
+## Worktrees
+
+To run parallel sessions, give each its own git worktree, never a second
+session in the same folder.
+
+- **Location and creation.**  Worktrees live next to the repository, as
+  `../<repo>-<type>-<topic>`, and are created with
+  `scripts/new-worktree.sh <type>/<topic>`.  It branches from `main`, refuses
+  if the branch or the folder exists, and keeps the worktree and prints the
+  cleanup commands if an install fails.  See [docs/decisions.md](docs/decisions.md)
+  (decision 14) for why they are siblings.
+- **Each has its own `.venv`, never shared.**  `.venv` is git-ignored and its
+  editable install points at one checkout, so a shared venv would test the
+  wrong code.  The script makes it with the setup commands from
+  [Setting up and testing](#setting-up-and-testing).  `NO_ZUUL=1` skips the
+  Zuul install; any non-empty `NO_ZUUL` does, including `NO_ZUUL=0`.
+  Without Zuul the contract tests fail, so the gate needs it.
+- **One gate at a time.**  `scripts/check.sh` is serial on purpose and some
+  tests depend on timing, so don't run two gates (or a gate and a fast loop
+  with `-n auto`) at once on one machine.
+- **Merge one branch at a time.**  `main` can be checked out in only one
+  worktree, so `/merge` (which runs `git switch main`) fails while another
+  worktree has it, and a session left on `main` after its merge blocks the
+  other's `git switch main` until it switches away.
+- **The original checkout stays on a detached HEAD** (`git switch --detach`)
+  so that `main` is free for whichever worktree merges.  Nobody commits there:
+  the `.claude/hooks/no-commit-on-main.py` hook now refuses `git commit` on a
+  detached HEAD, except while a rebase, cherry-pick, merge or revert waits on
+  a conflict.  The script warns if the original checkout is still on `main`.
+- **A missing `.venv` is reported.**  `.claude/hooks/stop-checks.py` now blocks
+  (once per tree) when code changed and the venv is missing, instead of
+  letting the turn end with no checks run.
+- **Refresh the original checkout before reading or planning there.**  Merges
+  happen in other worktrees, so the original checkout is left on an old
+  commit; run `git switch --detach main` first, or you will plan against a
+  stale tree.
+- **The demo runs in one worktree only.**  It binds fixed ports (8080, 8090,
+  9000 and 8000), so two worktrees cannot both run it.
 
 ## Conventions
 

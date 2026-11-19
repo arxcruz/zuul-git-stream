@@ -129,8 +129,51 @@ the stop with the failure output.  Choices:
   dirty branch does not cost 10 s on every chat turn); a tree that failed and
   did not change is let through, since another block cannot help.  Any change
   is re-checked.
-- **Fails open**: a missing venv or ruff, bad input or a check over 90 s
+- **Fails open**: a missing ruff, bad input or a check over 90 s
   (`STOP_HOOK_TIMEOUT`) prints a note and lets the agent stop; a broken hook
   must not trap it.
+- **A missing venv blocks** (changed from fail-open when worktrees were
+  added): `.venv` is git-ignored, so a fresh worktree has none, and an agent
+  that finishes with no checks run looks like one that passed.  With a code
+  change and no `.venv/bin/python` the hook blocks and names the AGENTS.md
+  setup commands.  It blocks once per tree fingerprint, recorded as `no-venv`
+  rather than `fail`, so once the venv exists the same tree is checked
+  instead of being let through as "failed and unchanged"; the same tree again
+  with no venv is let through with a note.  Docs-only changes, `main`/`master`
+  and a detached HEAD stay silent.
 - **Not the gate**: it skips the slow tests; `scripts/check.sh` decides
   "done".
+
+## 14. Parallel sessions use sibling worktrees; the original stays detached (Nov 19)
+
+Two Claude Code sessions in one folder trample each other's branch, index and
+venv, so each gets its own git worktree.  Choices:
+
+- **Sibling folders**, `../<repo>-<type>-<topic>`, made by
+  `scripts/new-worktree.sh`.  Inside the repository a worktree would show up
+  as an untracked directory in the original checkout (so `/merge` refuses on
+  a dirty tree) and `ruff check .` there lints its files (both checked with
+  a nested worktree); next to it, neither happens and `..` still means the
+  same thing to the rules that name `../zuul-kafka-driver`.
+- **One `.venv` per worktree.**  `.venv` is git-ignored, so a new worktree has
+  none, and its editable install points at one checkout; a shared venv could
+  silently test the wrong code.  The script makes it with the AGENTS.md setup
+  commands (Zuul included, `NO_ZUUL` to skip), and the stop hook now blocks
+  when it is missing (see decision 13).
+- **The original checkout stays on a detached HEAD.**  Git lets only one
+  worktree have `main` checked out, and `/merge` runs `git switch main`, so
+  with `main` held by the original checkout no worktree could ever merge.
+  Detaching it frees `main`.  The cost is that `no-commit-on-main.py` no
+  longer protects that checkout, because it guarded only `main` and `master`:
+  it now also refuses `git commit` on a detached HEAD.  A rebase, cherry-pick,
+  merge or revert that stopped on a conflict is exempt, because git detaches
+  HEAD for those on purpose and they are finished with `git commit`; the hook
+  finds them by git's own marker files (`rebase-merge`, `rebase-apply`,
+  `CHERRY_PICK_HEAD`, `MERGE_HEAD`, `REVERT_HEAD`) in each worktree's git
+  directory.  `git push` is not guarded on a detached HEAD.
+- **The base is `main`, resolved to a commit.**  In a clone with no local
+  `main`, `git worktree add -b X PATH main` makes a local `main` and ignores
+  `X`, so the script resolves local `main`, else `origin/main`, itself.
+- **Not solved:** a session left on `main` after `/merge` blocks the other
+  worktree's `git switch main` (backlog).  The demo's fixed ports allow it in
+  one worktree only.

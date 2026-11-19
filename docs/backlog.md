@@ -249,3 +249,18 @@ section 1.
   started; the gate on `main` after the merge covers that, and a red result
   there leaves the merge on local `main` for the user to deal with.  Check
   the two open points and tighten the patterns if either slips.
+- [S2] `/merge` in a worktree leaves the session on `main`
+  (`.claude/skills/merge/SKILL.md`, steps 3 to 6): the merge does
+  `git switch main` and never switches back, and git lets only one worktree
+  have `main`, so the other worktree's `/merge` fails at `git switch main`
+  until this session leaves it.  It also needs the original checkout to be
+  detached (decision 14), or `git switch main` fails at once.  Workaround:
+  `git switch --detach` in the session after a merge.  Fix: have the skill
+  detach (or switch to a spare branch) after step 5, and refuse early, before
+  the gate runs, when `main` is checked out in another worktree (`git worktree
+  list --porcelain`).  The skill's `allowed-tools` need the new commands:
+  `tests/test_merge_skill.py` compares them with an exact list (`TOOLS`), so
+  that list must be edited on purpose too, and it checks with `fnmatch` that
+  every command the skill runs matches a pattern.  `fnmatch` only
+  approximates Claude Code's own matching, which is what the open points
+  above are about.
