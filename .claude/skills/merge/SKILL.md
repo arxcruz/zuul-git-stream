@@ -30,7 +30,7 @@ Refuse and say why, doing nothing else, if any of these holds:
 - the branch changes a protected path, which the sandbox cannot rewrite, so
   `git switch main` would fail halfway.  Run
   `git diff --name-only --no-renames main...HEAD` and compare each line with
-  the table below.  If any line matches, refuse, list the matching paths, and
+  the table below.  If any line matches, refuse, list the matching paths one per line, and
   say: "merge from a terminal outside Claude Code" (the manual steps are in
   AGENTS.md, "Permissions and sandbox").  Do not run them.  If that command
   fails, report the error and stop: never assume the branch is safe.

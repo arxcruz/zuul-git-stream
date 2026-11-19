@@ -431,7 +431,10 @@ worked; `main` was free because the original checkout was detached.
   changes them, and that `.mcp.json` and the other `settings*.json` names
   behave like `.claude/settings.json` (backlog).  `.git/hooks` and
   `.git/config` are not checked: git never lists them in a diff.  Observed
-  (Nov 19): the Edit tool wrote `.claude/skills/merge/SKILL.md` in a
+  (Nov 19): in a real `/merge` in a fresh sandboxed session on a branch that
+  changed `.claude/skills/merge/SKILL.md`, the skill refused before the gate
+  and named that path; the glob and the non-matches are still unobserved
+  (backlog).  Observed (Nov 19): the Edit tool wrote `.claude/skills/merge/SKILL.md` in a
   sandboxed session, so the sandbox's write protection of `.claude/skills/`,
   `hooks/` and `agents/` applies to Bash, not to the Edit tool.
 - **`git branch -d` warns about `.git/config` in `/merge`.**  Observed twice,

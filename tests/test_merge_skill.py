@@ -192,6 +192,7 @@ def test_it_refuses_with_the_terminal_phrase_and_lists_the_paths(skill):
     assert PHRASE in text
     assert 'protected' in text
     assert 'list' in text and 'matching path' in text
+    assert 'one per line' in text
 
 
 def test_the_skill_names_every_protected_path(skill):

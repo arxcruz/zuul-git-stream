@@ -250,6 +250,9 @@ section 1.
   allow patterns: whether `git merge --no-ff -m x b && git push` is split
   before matching, so that the push is not covered by the
   `git merge --no-ff -m *` pattern.
+  The `git diff --name-only --no-renames main...HEAD` pattern ran once in a
+  live `/merge` (the Nov 19 real-run proof, in a fresh sandboxed session)
+  without error; whether it needed a permission prompt was not recorded.
   The gate on the branch does not include what `main` gained since the branch
   started; the gate on `main` after the merge covers that, and a red result
   there leaves the merge on local `main` for the user to deal with.  Check
