@@ -10,6 +10,7 @@ points at its own directory.
 import importlib.util
 import json
 import os
+import shlex
 import subprocess
 
 import pytest
@@ -436,3 +437,22 @@ def test_the_hook_is_registered_for_stop():
     assert hook['command'] == '${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-checks.py'
     assert hook['timeout'] == 120
     assert os.access(HOOK, os.X_OK)
+
+
+def uv_lines(text):
+    """The `uv ...` commands in a text, as argument lists."""
+    return [shlex.split(line)[1:] for line in map(str.strip, text.splitlines())
+            if line.startswith('uv ') and '.venv' in line]
+
+
+def test_the_setup_commands_in_the_block_message_are_the_ones_in_agents_md():
+    """The hook tells the agent to run these; AGENTS.md is the source."""
+    spec = importlib.util.spec_from_file_location('stop_checks', HOOK)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with open(os.path.join(ROOT, 'AGENTS.md')) as handle:
+        agents = handle.read()
+    setup = agents.split('## Setting up and testing')[1].split('### Commands')[0]
+    expected = uv_lines(setup)
+    assert len(expected) == 3, expected
+    assert uv_lines(module.SETUP % {'root': '.'}) == expected

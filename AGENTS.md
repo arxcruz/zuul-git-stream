@@ -358,6 +358,10 @@ session in the same folder.
 - **A missing `.venv` is reported.**  `.claude/hooks/stop-checks.py` now blocks
   (once per tree) when code changed and the venv is missing, instead of
   letting the turn end with no checks run.
+- **Refresh the original checkout before reading or planning there.**  Merges
+  happen in other worktrees, so the original checkout is left on an old
+  commit; run `git switch --detach main` first, or you will plan against a
+  stale tree.
 - **The demo runs in one worktree only.**  It binds fixed ports (8080, 8090,
   9000 and 8000), so two worktrees cannot both run it.
 

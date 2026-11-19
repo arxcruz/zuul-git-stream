@@ -258,5 +258,9 @@ section 1.
   `git switch --detach` in the session after a merge.  Fix: have the skill
   detach (or switch to a spare branch) after step 5, and refuse early, before
   the gate runs, when `main` is checked out in another worktree (`git worktree
-  list --porcelain`).  The skill's `allowed-tools` patterns need the new
-  commands, and `tests/test_merge_skill.py` pins them.
+  list --porcelain`).  The skill's `allowed-tools` need the new commands:
+  `tests/test_merge_skill.py` compares them with an exact list (`TOOLS`), so
+  that list must be edited on purpose too, and it checks with `fnmatch` that
+  every command the skill runs matches a pattern.  `fnmatch` only
+  approximates Claude Code's own matching, which is what the open points
+  above are about.

@@ -254,8 +254,9 @@ def test_the_new_branch_starts_from_main_not_from_where_it_was_run(
 def test_a_fresh_clone_with_no_local_main_still_gets_the_new_branch(
         tmp_path, run, uv):
     """A clone of a repository whose HEAD is not main has only origin/main.
-    git 2.54's `worktree add -b X --end-of-options PATH main` then checks out
-    main and ignores X, so the script must not pass --end-of-options."""
+    git 2.54's `worktree add -b X PATH main` then makes a local main and
+    ignores X, so the script passes a start point resolved to a commit (still
+    after --end-of-options)."""
     origin = tmp_path / 'origin'
     subprocess.run(['git', 'init', '-q', '-b', 'main', str(origin)],
                    check=True)
