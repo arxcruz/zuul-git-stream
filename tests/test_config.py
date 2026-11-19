@@ -94,7 +94,7 @@ def test_insecure_on_the_command_line(monkeypatch):
 
 
 @pytest.mark.parametrize('name', ['max_body', 'read_timeout',
-                                  'body_timeout'])
+                                  'body_timeout', 'max_connections'])
 def test_a_limit_below_one_is_refused(tmp_path, name):
     path = write(tmp_path, '[server]\n%s = 0\n' % name)
     with pytest.raises(config.ConfigError, match='%s must be at least 1' % name):
@@ -111,6 +111,39 @@ def test_request_limits(tmp_path):
     s = config.load(path, environ={'GIT_STREAM_MAX_BODY': '4096',
                                    'GIT_STREAM_READ_TIMEOUT': '7'})
     assert (s['server']['max_body'], s['server']['read_timeout']) == (4096, 7)
+
+
+def test_max_connections_defaults_to_64():
+    assert config.load(environ={})['server']['max_connections'] == 64
+
+
+def test_max_connections_file_then_environment_then_command_line(
+        tmp_path, monkeypatch):
+    monkeypatch.delenv('GIT_STREAM_CONFIG', raising=False)
+    monkeypatch.delenv('GIT_STREAM_MAX_CONNECTIONS', raising=False)
+    path = write(tmp_path, '[server]\nmax_connections = 10\n')
+    assert config.load(path, environ={})['server']['max_connections'] == 10
+    s = config.load(path, environ={'GIT_STREAM_MAX_CONNECTIONS': '20'})
+    assert s['server']['max_connections'] == 20
+    monkeypatch.setenv('GIT_STREAM_MAX_CONNECTIONS', '20')
+    assert parse_args(['--config', path])['server']['max_connections'] == 20
+    s = parse_args(['--config', path, '--max-connections', '30'])
+    assert s['server']['max_connections'] == 30
+
+
+@pytest.mark.parametrize('value', ['-3', '0'])
+def test_max_connections_below_one_is_refused_from_the_environment(value):
+    with pytest.raises(config.ConfigError,
+                       match='max_connections must be at least 1'):
+        config.load(environ={'GIT_STREAM_MAX_CONNECTIONS': value})
+
+
+def test_max_connections_must_be_a_number(tmp_path):
+    path = write(tmp_path, '[server]\nmax_connections = "many"\n')
+    with pytest.raises(config.ConfigError, match='expected int'):
+        config.load(path, environ={})
+    with pytest.raises(config.ConfigError, match='expected int'):
+        config.load(environ={'GIT_STREAM_MAX_CONNECTIONS': 'many'})
 
 
 def test_insecure_is_off_unless_asked_for(tmp_path):

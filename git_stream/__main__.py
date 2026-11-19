@@ -81,6 +81,9 @@ def parse_args(argv=None):
                         help='drop a client silent this long')
     parser.add_argument('--body-timeout', type=int, metavar='SECONDS',
                         help='longest a whole request body may take')
+    parser.add_argument('--max-connections', type=int, metavar='N',
+                        help='most connections served at once; more get a '
+                        '503')
     parser.add_argument('--debug', action='store_true', default=None)
     args = parser.parse_args(argv)
     overrides = {
@@ -89,7 +92,8 @@ def parse_args(argv=None):
                    'debug': args.debug, 'insecure': args.insecure,
                    'max_body': args.max_body,
                    'read_timeout': args.read_timeout,
-                   'body_timeout': args.body_timeout},
+                   'body_timeout': args.body_timeout,
+                   'max_connections': args.max_connections},
         'webhooks': {'urls': args.webhook, 'token': args.webhook_token},
         'retry': {'zuul_api': args.zuul_api,
                   'max_attempts': args.max_attempts,
@@ -168,7 +172,8 @@ def build_server(settings, forge, sender, metrics):
     return serve(forge, sender, host, port, metrics=metrics,
                  max_body=server_cfg['max_body'],
                  read_timeout=server_cfg['read_timeout'],
-                 body_timeout=server_cfg['body_timeout'])
+                 body_timeout=server_cfg['body_timeout'],
+                 max_connections=server_cfg['max_connections'])
 
 
 def main(argv=None):

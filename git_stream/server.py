@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 import time
 import urllib.parse
 import http.server
@@ -38,6 +39,17 @@ NO_STREAM_TOKENS = ('no stream tokens are configured, so the stream is '
 MAX_BODY = 10 * 1024 * 1024
 READ_TIMEOUT = 30
 BODY_TIMEOUT = 120
+# At most MAX_CONNECTIONS connections are served at once; another is refused
+# with a 503 that is written within REFUSAL_TIMEOUT seconds, so the accept
+# loop never waits on a client.
+MAX_CONNECTIONS = 64
+REFUSAL_TIMEOUT = 1
+_BUSY = b'server busy: too many connections, retry shortly\n'
+REFUSAL = (b'HTTP/1.1 503 Service Unavailable\r\n'
+           b'Retry-After: 1\r\n'
+           b'Connection: close\r\n'
+           b'Content-Type: text/plain; charset=utf-8\r\n'
+           b'Content-Length: %d\r\n\r\n' % len(_BUSY)) + _BUSY
 # A chunk size line is hex digits and an optional ";extension"; a line
 # longer than this is not one.
 CHUNK_LINE_MAX = 128
@@ -490,11 +502,49 @@ class Server(http.server.ThreadingHTTPServer):
     # that the accept loop has not reached yet.
     request_queue_size = 128
 
+    def __init__(self, address, handler, max_connections=MAX_CONNECTIONS):
+        # One slot per connection, taken on the accept thread before a
+        # handler thread exists and given back when that thread ends.  A
+        # BoundedSemaphore raises on a second release, so a slot freed twice
+        # is a loud bug rather than a silently higher cap.
+        self._slots = threading.BoundedSemaphore(max_connections)
+        super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self._refuse(request, client_address)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            # The thread never ran (it could not be started), so nothing
+            # else will give the slot back.
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+    def _refuse(self, request, client_address):
+        """Answer 503 and close, on the accept thread, without waiting for
+        a client that will not read."""
+        try:
+            request.settimeout(REFUSAL_TIMEOUT)
+            request.sendall(REFUSAL)
+        except OSError:
+            pass
+        log.debug('%s: refused, too many connections', client_address[0])
+        self.shutdown_request(request)
+
 
 def serve(forge, sender, host, port, metrics=None, max_body=MAX_BODY,
-          read_timeout=READ_TIMEOUT, body_timeout=BODY_TIMEOUT):
+          read_timeout=READ_TIMEOUT, body_timeout=BODY_TIMEOUT,
+          max_connections=MAX_CONNECTIONS):
     handler = make_handler(max_body, read_timeout, body_timeout)
-    server = Server((host, port), handler)
+    server = Server((host, port), handler, max_connections)
     server.daemon_threads = True
     server.forge = forge
     server.sender = sender

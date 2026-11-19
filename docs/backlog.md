@@ -88,10 +88,6 @@ implement it first, and treat a failing test there as possibly a test bug.
 From the audit; none of these has a test.  Specify with a test first, as for
 section 1.
 
-- [S1] There is no cap on concurrent connections: each one is a thread for as
-  long as it lasts (at most `read_timeout` when silent, `body_timeout` when
-  trickling).  60 silent clients cost 60 threads for 5 seconds in a real
-  attack run, and all were released.  A cap, or a pool, would bound it.
 - [S1] Request limits (done) leave these open: the total deadline covers the body,
   not the request line and headers, which the standard library reads with
   only the per-receive `read_timeout` (a client can trickle them); `git
@@ -99,6 +95,12 @@ section 1.
   is buffered in memory; a 413 closes the connection without draining the
   rest of the upload, so a client still sending may see a reset instead of
   the response.
+- [S2] The connection cap (`[server] max_connections`, default 64) refuses with a
+  503 that Zuul's REST client retries, but git does not: a refusal during a
+  `git fetch` or `clone` by Zuul's mergers or executors would fail the job.
+  Measure it with a real demo run under load, and check the refusal reaches a
+  client in a Linux container (it was checked with curl on macOS only).  The
+  options are a higher default or exempting git smart HTTP from the cap.
 - [S2] `repos.GitError` is never caught, so a git failure (for example a revision
   the client named that does not exist) is a 500 `internal error`; it should
   be a 4xx where the cause is the client's (branch and tag names and an

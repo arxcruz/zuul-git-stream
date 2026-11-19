@@ -7,11 +7,14 @@ that Zuul would not understand fails here rather than in a demo.
 
 import json
 import re
+import socket
+import threading
 import types
 
 import pytest
 
-from conftest import API_TOKEN
+from conftest import API_TOKEN, wait_for
+from git_stream import stream
 
 # These tests are the safety net for "Zuul must not need changes", so a
 # missing Zuul is a failure, not a skip.  Only a missing `zuul` itself gets
@@ -250,3 +253,54 @@ def test_builds_api_returns_the_fields_the_retry_policy_reads():
     from zuul.web import BuildConverter
     read = {'job_name', 'result', 'uuid', 'log_url'}  # retry.py
     assert read <= set(BuildConverter.schema().value)  # a Prop wrapping it
+
+
+def test_zuul_retries_a_503_from_a_full_connection_cap(make_forge,
+                                                      monkeypatch):
+    """At max_connections git-stream refuses with 503 and Retry-After; Zuul's
+    own client must ride that out, not raise, once a slot is free."""
+    forge = make_forge(max_connections=1)
+    # Set up in-process: over HTTP, each setup request's slot is released
+    # just after its reply, which could race the next request into a 503.
+    stream.apply(forge.forge, {'action': 'create_project',
+                               'project': 'bundles',
+                               'files': {'README.md': 'bundles\n'}},
+                 'git-stream')
+    mr = stream.apply(forge.forge, {
+        'action': 'open_mr', 'project': 'bundles', 'title': 'Bundle b-1',
+        'key': 'b-1', 'files': {'bundle.yaml': 'id: b-1\n'}}, 'git-stream')
+    refusals = []
+    real = forge.server._refuse
+
+    def counted(request, client_address):
+        refusals.append(client_address)
+        return real(request, client_address)
+    monkeypatch.setattr(forge.server, '_refuse', counted)
+
+    # A test connection holds the only slot, after one full request.
+    holder = socket.create_connection(
+        ('127.0.0.1', int(forge.url.rsplit(':', 1)[1])), timeout=5)
+    try:
+        holder.sendall(b'GET /health HTTP/1.1\r\nHost: x\r\n\r\n')
+        assert b'200' in holder.recv(4096)
+
+        client = gitlab.GitlabAPIClient(forge.url, API_TOKEN, 60, False)
+        outcome = []
+
+        def get():
+            try:
+                outcome.append(client.get_mr('bundles', mr['iid']))
+            except Exception as e:  # the answer is what Zuul raises
+                outcome.append(e)
+        getter = threading.Thread(target=get, daemon=True)
+        getter.start()
+        # Free the slot only once Zuul's client has really been refused.
+        assert wait_for(lambda: refusals), 'the client was never refused'
+    finally:
+        holder.close()
+    getter.join(15)
+
+    assert not getter.is_alive()
+    assert not isinstance(outcome[0], Exception), repr(outcome[0])
+    assert outcome[0]['iid'] == mr['iid']
+    assert len(refusals) >= 1
