@@ -9,6 +9,8 @@ wait for that.  Where a slot is released after the client sees the end (a
 close, a 408), `wait_for` polls until a fresh connection is served.
 """
 
+import http.server
+import json
 import socket
 import socketserver
 import struct
@@ -17,7 +19,9 @@ from unittest import mock
 
 import pytest
 
-from conftest import API_TOKEN, wait_for
+from conftest import API_TOKEN, FAST_POLL, wait_for
+from git_stream import stream
+from git_stream.webhooks import WebhookSender
 
 STALLED_POST = (b'POST /api/stream HTTP/1.1\r\nHost: x\r\n'
                 b'Authorization: Bearer ' + API_TOKEN.encode() + b'\r\n'
@@ -315,6 +319,53 @@ def test_a_thread_that_cannot_start_frees_its_slot(
     # raise.
     server.shutdown()
     server.server_close()
+
+
+# -- outgoing webhooks take no slot --------------------------------------------
+
+def test_an_outgoing_webhook_is_delivered_with_the_cap_full(capped, conns):
+    forge = capped(1)
+    received = []
+
+    class Hook(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers['Content-Length'])
+            received.append(json.loads(self.rfile.read(length)))
+            self.send_response(200)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+    receiver = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Hook)
+    threading.Thread(target=receiver.serve_forever, kwargs=FAST_POLL,
+                     daemon=True).start()
+    sender = WebhookSender(
+        ['http://127.0.0.1:%d/hook' % receiver.server_address[1]], 'tok',
+        max_backoff=1)
+    sender.start()
+    forge.forge.emit = sender.emit
+    try:
+        # In-process, so that setting up takes no slot either.
+        stream.apply(forge.forge, {'action': 'create_project',
+                                   'project': 'bundles',
+                                   'files': {'README.md': 'x\n'}},
+                     'git-stream')
+        (held,) = hold(forge, conns)
+        assert refused(forge, conns)           # the cap really is full
+
+        stream.apply(forge.forge, {
+            'action': 'open_mr', 'project': 'bundles', 'title': 'T',
+            'key': 'k', 'files': {'a.yaml': 'a: 1\n'}}, 'git-stream')
+        assert wait_for(lambda: received), 'the webhook was never delivered'
+        assert received[0]['object_kind'] == 'merge_request'
+
+        assert refused(forge, conns)           # and the hook used no slot
+        assert held.get()[0] == 200
+    finally:
+        sender.stop()
+        receiver.shutdown()
+        receiver.server_close()
 
 
 # -- a refusal that cannot be written ----------------------------------------
