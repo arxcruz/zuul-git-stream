@@ -246,9 +246,10 @@ section 1.
   unchecked: that `disable-model-invocation` really stops the model from
   starting `/merge`.  Compound-command splitting is verified for deny rules
   by two probes (`echo ok; git push origin main` was refused by
-  `Bash(git push *)`, decision 15) and still unchecked for this skill's allow patterns: whether
-  `git merge --no-ff -m x b && git push` is split before matching, so that
-  the push is not covered by the `git merge --no-ff -m *` pattern.
+  `Bash(git push *)`, decision 15) and still unchecked for this skill's
+  allow patterns: whether `git merge --no-ff -m x b && git push` is split
+  before matching, so that the push is not covered by the
+  `git merge --no-ff -m *` pattern.
   The gate on the branch does not include what `main` gained since the branch
   started; the gate on `main` after the merge covers that, and a red result
   there leaves the merge on local `main` for the user to deal with.  Check

@@ -217,8 +217,9 @@ settings (`.claude/settings.json`) now confine it.  Choices:
   `bash -c 'git push origin main'`, `git branch --delete --force x` and `git
   -c k=v reset --hard HEAD` (it ran; git rejected it only because `k` is not a
   valid config key, and that a valid `-c a.b=c` would have run the reset is an
-  inference).  So the rules catch the plain spellings early and say why, and
-  the other three rules have the same gap as `git push`.  The sandbox is the
+  inference).  So the rules catch the plain spellings early and say why.  The
+  gap was shown for `git branch -D` and `git reset --hard`; `git clean` should
+  have it too, by the same mechanism, but was not probed.  The sandbox is the
   boundary.
 - **Untested:** whether the sandbox stops a push to a real remote.  The probes
   could not tell, because this repository has no remote and git failed before

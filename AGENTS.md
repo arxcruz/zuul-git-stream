@@ -402,9 +402,10 @@ worktree's shared `.git` is inside its write scope (backlog).
   `git -c k=v reset --hard HEAD`; they reached git, which failed only because
   there is no remote, no such branch, or `k` is not a valid config key.  (That
   a valid `-c a.b=c` would have run the reset is an inference, not probed.)
-  So the deny rules are a speed bump for the plain spellings, and the other
-  three rules have the same gap as `git push`.  The sandbox is the boundary;
-  whether it stops a push to a real remote is untested (backlog).
+  So the deny rules are a speed bump for the plain spellings.  The gap was
+  shown for `git branch -D` and `git reset --hard`; `git clean` should have it
+  too, by the same mechanism, but was not probed.  The sandbox is the
+  boundary; whether it stops a push to a real remote is untested (backlog).
 
 ## Conventions
 
