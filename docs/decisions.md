@@ -227,3 +227,15 @@ settings (`.claude/settings.json`) now confine it.  Choices:
   which should refuse an unlisted host, but that is unverified (backlog).
 - **Settings load only at session start**, so a session that began before the
   file changed does not have the new rules until it is restarted.
+
+**Consequence found at first merge (Nov 19).**  `/merge` of
+`chore/sandbox-settings`, run in a sandboxed session, failed at
+`git switch main`: the sandbox refused to unlink `.claude/settings.json`
+because it is a protected path, and git aborted on that local change.
+Nothing was merged; the merge was finished by hand from a normal terminal.
+This was observed.  That the same holds for any branch whose diff touches
+`.claude/settings*.json`, `.mcp.json` or the other protected paths is
+inferred from the sandbox documentation, not probed.  So the sandbox that
+protects these files also stops the agent from merging a change to them, and
+that is acceptable: such a merge should be done by the human.  The skill
+does not check for this yet (backlog).

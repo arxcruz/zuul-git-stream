@@ -125,3 +125,13 @@ def test_the_merge_item_separates_deny_rules_from_allow_patterns():
     item = words(found[0])
     assert 'verified for deny rules' in item
     assert 'unchecked for' in item and 'allow patterns' in item
+
+
+def test_backlog_has_an_s2_item_for_merging_protected_paths():
+    found = [item for item in backlog_items()
+             if re.match(r'- \[S2\]', item) and 'protected path' in item]
+    assert found, 'no [S2] backlog item about protected paths and /merge'
+    item = words(found[0])
+    assert 'git diff --name-only main...head' in item
+    assert 'merge from a terminal outside claude code' in item
+    assert 'not changed yet' in item

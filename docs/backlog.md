@@ -290,3 +290,15 @@ section 1.
   Workaround: write `docs/specs/<name>.md` by hand, in the skill's format, on
   the feature branch.  Fix: let `/spec` run on a fresh feature branch or on a
   detached HEAD at `main`.
+- [S2] `/merge` cannot merge a branch that changes a protected path
+  (`.claude/skills/merge/SKILL.md`, decision 15).  Observed: `/merge` of
+  `chore/sandbox-settings` in a sandboxed session failed at `git switch main`,
+  because the sandbox denied the unlink of `.claude/settings.json` (a
+  protected path); the merge aborted on the local change and nothing was
+  merged.  It was finished by hand from a normal terminal.  Inferred from the
+  sandbox docs, not probed: the same applies to any branch whose diff touches
+  `.claude/settings*.json`, `.mcp.json` or the other protected paths.  Fix:
+  before the gate, have the skill check `git diff --name-only main...HEAD`
+  for protected paths and refuse with "merge from a terminal outside Claude
+  Code".  The skill is not changed yet; its `allowed-tools` need the new
+  command, and `tests/test_merge_skill.py` compares them with an exact list.
