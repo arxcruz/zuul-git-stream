@@ -90,8 +90,10 @@ persistent failures are escalated (Jira later).
 A Claude Code hook enforces the first rule: `.claude/hooks/no-commit-on-main.py`
 (a `PreToolUse` hook on the Bash tool, configured in `.claude/settings.json`)
 blocks `git commit` and `git push` while the repository is on `main` or
-`master`, and says to run `git switch -c <type>/<topic>`.  `git switch -c` and
-`git checkout -b` are never blocked.  It is a guardrail, not a security
+`master`, and `git commit` on a detached HEAD (except while a rebase,
+cherry-pick, merge or revert waits on a conflict, which leaves HEAD detached
+on purpose), and says to run `git switch -c <type>/<topic>`.  `git switch -c`
+and `git checkout -b` are never blocked.  It is a guardrail, not a security
 boundary (it does not catch aliases, scripts that call git themselves, or
 `git push origin main` from another branch), and it is covered by
 `tests/test_branch_guard_hook.py`.  A session that started before
