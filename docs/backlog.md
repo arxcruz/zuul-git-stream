@@ -234,12 +234,15 @@ section 1.
   tests in `tests/test_spec_skill.py` grep the prose for keywords ("never",
   "recommend", "plan"), so they show the skill mentions a behavior, not that
   it demands it.
-- [S3] `/merge` skill (`.claude/skills/merge/SKILL.md`): the `allowed-tools`
-  patterns (`Bash(git merge --no-ff *)`, `Bash(git branch -d *)`,
-  `Bash(scripts/check.sh)`) were never run in a live session, and
-  `git branch -d -f x` also matches the delete pattern (the skill text forbids
-  it; only a test of the text guards it).  The gate on the branch does not
-  include what `main` gained since the branch started; the gate on `main`
-  after the merge is what covers that, and a red result there leaves the
-  merge on local `main` for the user to deal with.  Do the dry run of
-  `/merge` on scratch branches and tighten the patterns if any slips.
+- [S3] `/merge` skill (`.claude/skills/merge/SKILL.md`): its `allowed-tools`
+  patterns (exact for the log, merge-tree and gate commands; `git merge
+  --no-ff -m *` and `git branch -d --end-of-options *` for the merge and the
+  delete) were never run in a live session.  Unchecked there: that Claude Code
+  accepts them, that a compound command such as `git merge --no-ff -m x b &&
+  git push` is split before matching, and that
+  `disable-model-invocation` really stops the model from starting `/merge`.
+  The gate on the branch does not include what `main` gained since the branch
+  started; the gate on `main` after the merge covers that, and a red result
+  there leaves the merge on local `main` for the user to deal with.  Do the
+  dry run of `/merge` on scratch branches and tighten the patterns if any
+  slips.

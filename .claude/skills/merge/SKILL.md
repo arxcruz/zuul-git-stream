@@ -3,7 +3,7 @@ name: merge
 description: Merge the current branch into main with --no-ff after the full gate, delete it with the safe branch -d, and run the gate on main. Typing /merge is the approval to merge. It never pushes.
 argument-hint: "[branch]"
 disable-model-invocation: true
-allowed-tools: Bash(git branch --show-current) Bash(git status --short) Bash(git log --oneline *) Bash(git merge-tree --write-tree *) Bash(scripts/check.sh) Bash(git switch main) Bash(git merge --no-ff *) Bash(git branch -d *)
+allowed-tools: Bash(git branch --show-current) Bash(git status --short) Bash(git log --oneline main..HEAD) Bash(git log --oneline -3) Bash(git merge-tree --write-tree main HEAD) Bash(scripts/check.sh) Bash(git switch main) Bash(git merge --no-ff -m *) Bash(git branch -d --end-of-options *)
 ---
 
 Merge the current branch into `main`.  The user typing `/merge` is their
@@ -44,6 +44,7 @@ end of its output and stop.  The branch is not merged.
    where `<summary>` is one line, in your own words, of what the branch does.
    If your instructions give an attribution line for commits, add it as a
    further `-m` argument.
+   If the merge fails, stop and report the error; do not try to repair it.
 
 ## 4. Delete the branch
 

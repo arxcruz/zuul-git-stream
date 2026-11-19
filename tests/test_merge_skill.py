@@ -33,12 +33,13 @@ AGENTS_MD = os.path.join(ROOT, 'AGENTS.md')
 TOOLS = [
     'Bash(git branch --show-current)',
     'Bash(git status --short)',
-    'Bash(git log --oneline *)',
-    'Bash(git merge-tree --write-tree *)',
+    'Bash(git log --oneline main..HEAD)',
+    'Bash(git log --oneline -3)',
+    'Bash(git merge-tree --write-tree main HEAD)',
     'Bash(scripts/check.sh)',
     'Bash(git switch main)',
-    'Bash(git merge --no-ff *)',
-    'Bash(git branch -d *)',
+    'Bash(git merge --no-ff -m *)',
+    'Bash(git branch -d --end-of-options *)',
 ]
 
 # The commands of the flow, as the skill writes them (<branch> is the
@@ -116,8 +117,11 @@ def test_none_of_its_tools_can_push_or_destroy(skill):
                           'commit', 'stash', 'clean', ' -D', ' -f',
                           '--force', '--abort'):
             assert forbidden not in tool, tool
-    # The pattern for the delete is the lower-case one only.
-    assert 'Bash(git branch -d *)' in allowed(meta)
+    # The delete is the lower-case, end-of-options form only, so neither
+    # `-D` nor `-d -f` matches; the log and merge-tree patterns are exact.
+    assert 'Bash(git branch -d --end-of-options *)' in allowed(meta)
+    assert not any(t.endswith(' *)') and t.startswith('Bash(git log')
+                   for t in allowed(meta))
 
 
 def test_every_injected_command_is_allowed(skill):
@@ -168,6 +172,11 @@ def test_the_gate_runs_on_the_branch_first_and_on_main_after(skill):
     assert 'red' in text and 'stop' in text
     assert 'timeout' in text and '600000' in body
     assert 'report only' in text and 'do not undo' in text
+
+
+def test_it_stops_and_reports_when_the_merge_fails(skill):
+    _, body = skill
+    assert 'if the merge fails, stop and report' in words(body)
 
 
 def test_it_deletes_with_the_safe_option_and_never_force(skill):
@@ -339,7 +348,7 @@ def run_hook(repo, command):
     MERGE_TREE, SWITCH, MERGE, DELETE, LOG, 'git status --short',
     'scripts/check.sh'])
 def test_the_hook_allows_every_command_of_the_flow_on_main(repo, command):
-    assert command in read(SKILL) or command == 'git status --short'
+    assert command in read(SKILL).split('---\n', 2)[2]
     code, message = run_hook(repo, command.replace('<branch>', 'feat')
                              .replace('<summary>', 'x'))
     assert code == 0, message
