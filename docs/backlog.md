@@ -120,6 +120,11 @@ section 1.
     calls `ref.startswith`.  The same holds for a non-string `start` on
     `push`.
 
+- [S3] A non-string `log_url` in Zuul's builds API (a number, say) makes
+  `/escalations` and the MR page a 500: `_log_link` and `html.escape` both
+  assume a string (checked with `log_url: 5`; it failed the same way before
+  the `javascript:` fix).  Zuul sends strings, so only a misbehaving Zuul
+  triggers it; `retry.py` could drop or `str()` the value when it records it.
 - [S3] No `Content-Security-Policy` or `X-Content-Type-Options: nosniff`
   header on any response: a second layer if an escape is ever missed (the
   pages escape every value they show, which `tests/test_html_escaping.py`
