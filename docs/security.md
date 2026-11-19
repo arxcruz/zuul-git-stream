@@ -14,6 +14,11 @@ channel that an attacker can reach.
 | git clone/fetch | Zuul executor/merger | anonymous by default; a token is a deployment option (below) |
 | `[retry] zuul_api` URL | git-stream reads Zuul's builds API | unauthenticated; gate it at the network (below) |
 
+Tokens (`[api_tokens]`, `[stream] tokens`) are compared with
+`hmac.compare_digest` against every configured token, without stopping at the
+first match, so response time does not tell a client how much of a token it
+guessed (`_match_token` in `forge.py`).  Token length is not hidden.
+
 ## Secure by default
 
 With no `[api_tokens]`, REST writes are 401 ("no API tokens are

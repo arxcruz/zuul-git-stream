@@ -14,6 +14,7 @@ That keeps the hot path lock-free on the database and survives restarts.
 
 import copy
 import datetime
+import hmac
 import json
 import logging
 import os
@@ -282,6 +283,26 @@ def _load_store(data_dir):
         return JsonStore(os.path.join(data_dir, 'state.json'))
 
 
+def _match_token(pairs, token):
+    """The user whose token equals `token`, or None.
+
+    Every pair is compared with hmac.compare_digest and the scan never stops
+    at a match, so how long the check takes does not say which token, or how
+    much of one, was right.  Both sides are UTF-8 bytes: compare_digest
+    raises on a non-ASCII str.  The first match wins, as it always did.
+    """
+    if token is None:
+        return None
+    wanted = token.encode('utf-8', 'surrogateescape')
+    found = None
+    for user, tok in pairs:
+        same = hmac.compare_digest(
+            tok.encode('utf-8', 'surrogateescape'), wanted)
+        if same and found is None:
+            found = user
+    return found
+
+
 # -- the forge ----------------------------------------------------------------
 
 class Forge:
@@ -340,7 +361,8 @@ class Forge:
     def user_for_token(self, token):
         if not self.users:
             return 'zuul' if self.insecure else None
-        return self.users.get(token)
+        return _match_token(
+            ((user, tok) for tok, user in self.users.items()), token)
 
     def stream_user_for_token(self, token):
         """The sender a stream token belongs to (None if unknown).
@@ -350,12 +372,7 @@ class Forge:
         """
         if not self.stream_tokens:
             return 'git-stream' if self.insecure else None
-        if token is None:
-            return None
-        for user, tok in self.stream_tokens.items():
-            if tok == token:
-                return user
-        return None
+        return _match_token(self.stream_tokens.items(), token)
 
     def repo(self, project):
         return Repo(os.path.join(self.repo_root, project['name'] + '.git'))
