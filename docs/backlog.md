@@ -234,3 +234,12 @@ section 1.
   tests in `tests/test_spec_skill.py` grep the prose for keywords ("never",
   "recommend", "plan"), so they show the skill mentions a behavior, not that
   it demands it.
+- [S3] `/merge` skill (`.claude/skills/merge/SKILL.md`): the `allowed-tools`
+  patterns (`Bash(git merge --no-ff *)`, `Bash(git branch -d *)`,
+  `Bash(scripts/check.sh)`) were never run in a live session, and
+  `git branch -d -f x` also matches the delete pattern (the skill text forbids
+  it; only a test of the text guards it).  The gate on the branch does not
+  include what `main` gained since the branch started; the gate on `main`
+  after the merge is what covers that, and a red result there leaves the
+  merge on local `main` for the user to deal with.  Do the dry run of
+  `/merge` on scratch branches and tighten the patterns if any slips.
