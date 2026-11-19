@@ -127,11 +127,23 @@ def test_the_merge_item_separates_deny_rules_from_allow_patterns():
     assert 'unchecked for' in item and 'allow patterns' in item
 
 
-def test_backlog_has_an_s2_item_for_merging_protected_paths():
+def test_the_protected_path_merge_item_is_done_and_the_probe_item_exists():
+    # The S2 item "/merge cannot merge a branch that changes a protected
+    # path" was implemented (docs/specs/merge-protected-path-check.md), so it
+    # must be gone; what is left is the S3 item to probe the inferred names.
+    assert not [item for item in backlog_items()
+                if re.match(r'- \[S2\]', item) and 'protected path' in item]
     found = [item for item in backlog_items()
-             if re.match(r'- \[S2\]', item) and 'protected path' in item]
-    assert found, 'no [S2] backlog item about protected paths and /merge'
+             if re.match(r'- \[S3\]', item) and '.mcp.json' in item
+             and 'probe' in item.lower()]
+    assert found, 'no [S3] backlog item to probe the inferred protected names'
     item = words(found[0])
-    assert 'git diff --name-only main...head' in item
-    assert 'merge from a terminal outside claude code' in item
-    assert 'not changed yet' in item
+    assert 'real `/merge`' in item and 'inferred' in item
+
+
+def test_the_section_says_the_skill_checks_protected_paths_now():
+    text = words(section())
+    assert 'git diff --name-only --no-renames main...head' in text
+    assert 'merge from a terminal outside claude code' in text
+    assert 'not check for it yet' not in text
+    assert 'observed' in text and 'inferred' in text

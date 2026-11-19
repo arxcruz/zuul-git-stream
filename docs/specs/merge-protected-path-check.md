@@ -63,9 +63,10 @@ backlog item.
 
 This branch edits `.claude/skills/merge/SKILL.md`, so by the rule above its
 own merge must be done by hand.  That is expected, and the first real use of
-the check.  Per the sandbox docs (not probed here), the sandbox does not
-cover the Edit and Write tools, so the implementer edits
-`.claude/skills/merge/SKILL.md` with Edit.
+the check.  Observed (Nov 19): the Edit tool wrote
+`.claude/skills/merge/SKILL.md` in a sandboxed session, so the sandbox's write
+protection of `.claude/skills/`, `hooks/` and `agents/` applies to Bash, not
+to the Edit tool.  The implementer therefore edits the skill with Edit.
 
 ## The command
 

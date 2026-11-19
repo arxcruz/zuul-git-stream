@@ -238,4 +238,7 @@ This was observed.  That the same holds for any branch whose diff touches
 inferred from the sandbox documentation, not probed.  So the sandbox that
 protects these files also stops the agent from merging a change to them, and
 that is acceptable: such a merge should be done by the human.  The skill
-does not check for this yet (backlog).
+now checks the diff before the gate and refuses with "merge from a terminal
+outside Claude Code" (spec: `docs/specs/merge-protected-path-check.md`); which
+of the listed paths really break the merge, beyond `.claude/settings.json`,
+is still to be probed (backlog).
