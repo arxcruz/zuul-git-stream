@@ -50,7 +50,7 @@ All five are settled.
 
 | Decision | Choice | Why |
 |----------|--------|-----|
-| Reject or queue | **Reject at once** | Bounds threads, sockets and waiting; no new timeout setting; Zuul's GitLab client retries GETs on a 503 with `Retry-After` (unverified) |
+| Reject or queue | **Reject at once** | Bounds threads, sockets and waiting; no new timeout setting; Zuul's GitLab REST client retries GETs on a 503 with `Retry-After` (verified by the contract test, REST client only; git smart HTTP does not retry, see `docs/backlog.md`) |
 | Default value | **64** | Room for Zuul's executors, mergers, scheduler and the demo UI, well under typical thread limits |
 | Name and config | **`max_connections`**, `[server]`, env, CLI flag, at least 1 | Follows `max_body` and `read_timeout`; no unit in the name; no "0 means off" so the validation rule stays the same |
 | Refusal | **503 + `Retry-After` + close** | Overload of the whole server is a 503, not a per-client 429; plain clients and Zuul understand it; a bare reset would look like a network fault |

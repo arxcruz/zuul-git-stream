@@ -43,6 +43,22 @@ a handler thread:
 | `[server] max_body` | 10 MiB | a larger body is **413**, refused from the declared length (or, chunked, from the chunk size) before it is read |
 | `[server] read_timeout` | 30 s | a client silent this long while sending is **408** and dropped; also drops idle keep-alive connections and half-sent request lines |
 | `[server] body_timeout` | 120 s | a whole body must arrive within this, however steadily it trickles (**408**) |
+| `[server] max_connections` | 64 | at most this many connections are served at once; another is refused at once with **503**, `Retry-After: 1` and `Connection: close`, and no thread is started for it |
+
+The cap counts connections, not requests: a slot is taken when a connection
+is accepted and given back when its handler ends, however it ends (a close, a
+reset, a 408, an error, or a thread that cannot be started), so a keep-alive
+connection holds one slot for as long as it is open.  `/api/stream`
+connections are long-lived and count against the cap while they last; the
+default of 64 assumes the demo opens only a handful of them (unverified).
+The refusal is written with a 1 second send timeout on the accept thread, so
+a client that will not read it cannot stall the accept loop.  Zuul's REST
+client retries that 503 because of `Retry-After` (verified by the contract
+test `test_zuul_retries_a_503_from_a_full_connection_cap`; without the header
+it raises).  Git smart HTTP does not: a refused `git fetch` or `clone` fails
+(`docs/backlog.md`).  A flood of silent clients can still fill the cap and
+refuse legitimate ones until its connections time out (`read_timeout`); a
+per-client limit is not built.
 
 A client that vanishes mid-request (reset, broken pipe) is dropped quietly,
 and the listen backlog is 128, not the standard 5, so a burst of connections

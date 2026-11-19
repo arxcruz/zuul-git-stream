@@ -247,6 +247,7 @@ insecure = false                      # true: demos only, see docs/security.md
 max_body = 10485760                   # bytes; a larger request body is a 413
 read_timeout = 30                     # seconds of silence before a 408
 body_timeout = 120                    # seconds to receive a whole body
+max_connections = 64                  # open connections; one more gets a 503
 
 [api_tokens]                          # user = token, for API writes
 zuul = "API_TOKEN"
@@ -273,6 +274,12 @@ Environment variables (`GIT_STREAM_MAX_ATTEMPTS`, `GIT_STREAM_WEBHOOKS`,
 `GIT_STREAM_API_TOKENS="zuul=..."`, `GIT_STREAM_STREAM_TOKENS="user=..."`,
 `GIT_STREAM_WEBHOOK_TOKEN`, and command line options (`git-stream --help`)
 override both.  `git` (2.38 or newer) must be installed.
+
+`max_connections` (default 64) bounds how many connections are served at once;
+beyond it a client gets `503` with `Retry-After: 1` and Zuul's REST client
+retries.  To raise it, set `[server] max_connections`, `GIT_STREAM_MAX_CONNECTIONS`
+or `--max-connections N`.  A long-lived `/api/stream` connection holds a slot
+for as long as it is open.
 
 And in `zuul.conf`:
 

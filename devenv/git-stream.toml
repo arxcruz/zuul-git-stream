@@ -15,10 +15,11 @@ seed = "/repos"
 # ports on 127.0.0.1; never in production (docs/security.md).
 insecure = true
 # Request limits (these are the defaults): bytes of body, seconds of silence,
-# seconds for a whole body.
+# seconds for a whole body, connections served at once.
 # max_body = 10485760
 # read_timeout = 30
 # body_timeout = 120
+# max_connections = 64
 
 # Secrets are not in this file; compose passes them as environment
 # variables from .env: GIT_STREAM_API_TOKENS (Zuul's api_token in zuul.conf,
