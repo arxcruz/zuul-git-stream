@@ -406,6 +406,16 @@ worktree's shared `.git` is inside its write scope (backlog).
   shown for `git branch -D` and `git reset --hard`; `git clean` should have it
   too, by the same mechanism, but was not probed.  The sandbox is the
   boundary; whether it stops a push to a real remote is untested (backlog).
+- **Protected paths block `/merge`.**  Observed: `/merge` of a branch that
+  changed `.claude/settings.json` failed at `git switch main`, because the
+  sandbox refuses to rewrite that protected path.  Nothing was merged.  Merge
+  such a branch by hand from a terminal outside Claude Code: run
+  `scripts/check.sh` on the branch first; then, in the original checkout,
+  `git switch main`, `git merge --no-ff <branch>`, `git branch -d <branch>`,
+  `scripts/check.sh` on `main`, and finally `git switch --detach` so `main` is
+  free for the next worktree.  That `.mcp.json` and the other protected paths behave
+  the same is inferred from the sandbox docs, not probed, and the skill does
+  not check for it yet (backlog).
 
 ## Conventions
 
