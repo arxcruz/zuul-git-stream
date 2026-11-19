@@ -389,8 +389,9 @@ session in the same folder.
   change to the file does not have it; restart it.
 - **The setup script and the demo run from a terminal, not from the agent.**
   `scripts/new-worktree.sh` writes outside the working directory, and the
-  podman demo (`devenv/`) needs the container socket; the sandbox blocks both.
-  Nothing is in `excludedCommands`, on purpose: the agent could edit an
+  podman demo (`devenv/`) is probably blocked by the sandbox because it needs
+  the container socket (unverified).  They run from a terminal because
+  nothing is in `excludedCommands`, on purpose: the agent could edit an
   excluded script, and its next run would be unsandboxed.
 - **Limits found by running probes (Nov 19).**  Compound commands are denied:
   `echo ok; git push origin main` was refused by the `git push *` rule.  But
