@@ -28,20 +28,26 @@ merged (AGENTS.md "Permissions and sandbox", decision 15, backlog S2).
 6. The diff command itself fails (for example `main` does not exist): report
    the error and stop; do not guess that the branch is safe.
 7. Another refusal also applies (dirty tree, on `main`, conflict): the
-   existing refusals are unchanged and still win by their own text; the
-   protected-path refusal adds one more condition, it replaces none.
+   existing refusals are unchanged; the protected-path refusal adds one more
+   condition, it replaces none.  If any existing refusal applies, the skill
+   stops; which one is reported first is not specified.
 
 ## The protected paths
 
 The skill matches each line of the diff against this list.  A path ending in
-`/` matches everything under it; an entry with `*` is a glob; any other entry
-matches that exact path.
+`/` matches everything under it; an entry with `*` is a glob, and `*` matches
+within one path segment (never across a `/`); any other entry matches that
+exact path.  The table is relative to the repository root, which is what
+`git diff --name-only` prints.  A nested path such as `sub/.mcp.json` is not
+matched (out of scope: it is unknown whether the sandbox protects it), and
+case variants such as `.MCP.json` are out of scope too.
 
 | Path | Status |
 |------|--------|
 | `.claude/settings*.json` | `.claude/settings.json` is **observed**: blocked `git switch main` (Nov 19).  The glob comes from the sandbox docs as quoted in AGENTS.md, so any other name it matches (such as `.claude/settings.local.json`) is inferred |
 | `.mcp.json` | Inferred: protected per the sandbox docs, not probed |
 | `.claude/skills/` | **Observed** (Nov 19): `touch` of a new file and `mv` of `merge/SKILL.md` both failed with "Operation not permitted"; inferred only that `/merge`'s `git switch main` fails on it, not probed under `/merge` |
+| `.claude/agents/` | **Observed** (Nov 19): `touch` of a new file and `mv` of `branch-reviewer.md` both failed with "Operation not permitted"; `/merge` not run on it |
 | `.claude/hooks/` | **Observed** (Nov 19): `touch` of a new file and `mv` of `no-commit-on-main.py` both failed with "Operation not permitted"; inferred only that `/merge`'s `git switch main` fails on it, not probed under `/merge` |
 
 An inferred entry may refuse a branch that would have merged.  That is the
