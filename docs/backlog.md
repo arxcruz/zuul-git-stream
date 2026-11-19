@@ -120,9 +120,14 @@ section 1.
     calls `ref.startswith`.  The same holds for a non-string `start` on
     `push`.
 
-- [S1 (unverified)] HTML pages are built with string concatenation and `html.escape`; not every
-  call site was reviewed, so one missed `e()` could be stored XSS from a note
-  body or MR title.  Review all of them and add a test with hostile text.
+- [S3] No `Content-Security-Policy` or `X-Content-Type-Options: nosniff`
+  header on any response: a second layer if an escape is ever missed (the
+  pages escape every value they show, which `tests/test_html_escaping.py`
+  checks; a `javascript:` log URL from Zuul is now shown as text).  The demo
+  UI (`devenv/demo-ui/index.html`) builds its HTML in the browser and was
+  only reviewed by reading, never driven in a browser with hostile text; its
+  `log_url` links (`j.log_url`, `b.log_url`) still have the `javascript:`
+  gap the server pages had.
 - [S1] Token checks use `==` and a linear scan: stream tokens in
   `Forge.stream_user_for_token` (`forge.py`), and `user_for_token`'s dict
   lookup; use `hmac.compare_digest` over every configured token.  Why: timing
