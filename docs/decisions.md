@@ -183,6 +183,8 @@ and its venv, and the editable install and the Zuul import resolve inside the
 worktree.  The project hooks and skills load there; the stop hook ran ruff
 there and blocked on a missing venv; the gate passed (625 passed, 27 xfailed);
 the detached original refuses `git commit`.  `CLAUDE_PROJECT_DIR` is empty in
-the Bash tool, but the hooks resolve their paths anyway.  Not yet verified:
-memory carry-over, parallel load with two sessions, and `/merge` from a
-worktree.
+the Bash tool, but the hooks resolve their paths anyway.  Verified since:
+`/merge` from a worktree works with the original checkout detached, and two
+tasks (constant-time tokens, the connection cap) ran in parallel in two
+worktrees and merged one after the other.  Memory carry-over is still
+unchecked.
