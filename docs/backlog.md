@@ -245,8 +245,8 @@ section 1.
   branch -d`) and the second gate on `main` also ran live and passed.  Still
   unchecked: that `disable-model-invocation` really stops the model from
   starting `/merge`.  Compound-command splitting is verified for deny rules
-  (`echo ok; git push origin main` was refused by `Bash(git push *)`, decision
-  15) and still unchecked for this skill's allow patterns: whether
+  by two probes (`echo ok; git push origin main` was refused by
+  `Bash(git push *)`, decision 15) and still unchecked for this skill's allow patterns: whether
   `git merge --no-ff -m x b && git push` is split before matching, so that
   the push is not covered by the `git merge --no-ff -m *` pattern.
   The gate on the branch does not include what `main` gained since the branch
@@ -277,6 +277,13 @@ section 1.
   every command the skill runs matches a pattern.  `fnmatch` only
   approximates Claude Code's own matching, which is what the open points
   above are about.
+- [S2] Worktrees under the sandbox (AGENTS.md "Worktrees", decision 15): the
+  reviewer suspects a linked worktree's shared `.git` is outside the sandbox's
+  write scope, while the docs say it is allowed.  After the sandbox branch is
+  merged, run `git commit --allow-empty -m x`, `git switch`, `/merge` and
+  `scripts/check.sh` in a sandboxed session in a linked worktree, and fix the
+  docs or the settings to match.  Until then the Worktrees section is
+  unverified under the sandbox.
 - [S2] `/spec` fails in a worktree (`.claude/skills/spec/SKILL.md`): it runs only
   from `main` with a clean tree, and no worktree can have `main` (decision 14).
   Workaround: write `docs/specs/<name>.md` by hand, in the skill's format, on

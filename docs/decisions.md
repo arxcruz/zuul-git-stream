@@ -211,10 +211,15 @@ settings (`.claude/settings.json`) now confine it.  Choices:
   `git branch -D *`.  They stop the commands that lose work or publish it
   (the hard rules already say "nothing public").
 - **The deny rules are a speed bump, not the boundary.**  Probes run in a
-  session under these settings: a compound command (`echo ok; git push origin
-  main`) is denied, but `git -C . push origin main` and `bash -c 'git push
-  origin main'` are not matched and reached git.  The sandbox is the boundary;
-  the rules only catch the plain spelling early and say why.
+  session under these settings.  Blocked by the permission rules, not the
+  sandbox: the plain form, the bare form with no arguments, and the compound
+  `echo ok; git push origin main`.  Not blocked: `git -C . push origin main`,
+  `bash -c 'git push origin main'`, `git branch --delete --force x` and `git
+  -c k=v reset --hard HEAD` (it ran; git rejected it only because `k` is not a
+  valid config key, and that a valid `-c a.b=c` would have run the reset is an
+  inference).  So the rules catch the plain spellings early and say why, and
+  the other three rules have the same gap as `git push`.  The sandbox is the
+  boundary.
 - **Untested:** whether the sandbox stops a push to a real remote.  The probes
   could not tell, because this repository has no remote and git failed before
   any connection.  Network egress goes through the sandbox's filtering proxy,

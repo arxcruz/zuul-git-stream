@@ -330,7 +330,8 @@ Quote URLs containing `?` in zsh, or the shell globs them.
 ## Worktrees
 
 To run parallel sessions, give each its own git worktree, never a second
-session in the same folder.
+session in the same folder.  Unverified under the sandbox: whether a linked
+worktree's shared `.git` is inside its write scope (backlog).
 
 - **Location and creation.**  Worktrees live next to the repository, as
   `../<repo>-<type>-<topic>`, and are created with
@@ -393,13 +394,17 @@ session in the same folder.
   the container socket (unverified).  They run from a terminal because
   nothing is in `excludedCommands`, on purpose: the agent could edit an
   excluded script, and its next run would be unsandboxed.
-- **Limits found by running probes (Nov 19).**  Compound commands are denied:
-  `echo ok; git push origin main` was refused by the `git push *` rule.  But
-  `git -C . push origin main` and `bash -c 'git push origin main'` got past
-  the deny rules and reached git (they failed only because this repository has
-  no remote).  So the deny rules are a speed bump, and the sandbox is the
-  boundary.  Whether the sandbox stops a push to a real remote is untested
-  (backlog).
+- **Limits found by running probes (Nov 19).**  Blocked by the permission
+  rules, not the sandbox: the plain form (`git push`), the bare form with no
+  arguments, and the compound form `echo ok; git push origin main`.  Compound
+  commands are denied.  Not blocked: `git -C . push origin main`,
+  `bash -c 'git push origin main'`, `git branch --delete --force x` and
+  `git -c k=v reset --hard HEAD`; they reached git, which failed only because
+  there is no remote, no such branch, or `k` is not a valid config key.  (That
+  a valid `-c a.b=c` would have run the reset is an inference, not probed.)
+  So the deny rules are a speed bump for the plain spellings, and the other
+  three rules have the same gap as `git push`.  The sandbox is the boundary;
+  whether it stops a push to a real remote is untested (backlog).
 
 ## Conventions
 
