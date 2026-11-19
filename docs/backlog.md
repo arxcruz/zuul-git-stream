@@ -133,10 +133,6 @@ section 1.
   only reviewed by reading, never driven in a browser with hostile text; its
   `log_url` links (`j.log_url`, `b.log_url`) still have the `javascript:`
   gap the server pages had.
-- [S1] Token checks use `==` and a linear scan: stream tokens in
-  `Forge.stream_user_for_token` (`forge.py`), and `user_for_token`'s dict
-  lookup; use `hmac.compare_digest` over every configured token.  Why: timing
-  can leak a token to a client that can reach the stream.
 - [S2] `seen` (message ids) is a list capped at 1000 with an O(n) membership test
   and a database write per id, so a replay older than 1000 messages is
   accepted again.
