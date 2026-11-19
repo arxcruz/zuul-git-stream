@@ -172,7 +172,8 @@ def build_server(settings, forge, sender, metrics):
     return serve(forge, sender, host, port, metrics=metrics,
                  max_body=server_cfg['max_body'],
                  read_timeout=server_cfg['read_timeout'],
-                 body_timeout=server_cfg['body_timeout'])
+                 body_timeout=server_cfg['body_timeout'],
+                 max_connections=server_cfg['max_connections'])
 
 
 def main(argv=None):
