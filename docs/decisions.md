@@ -188,3 +188,36 @@ the Bash tool, but the hooks resolve their paths anyway.  Verified since:
 tasks (constant-time tokens, the connection cap) ran in parallel in two
 worktrees and merged one after the other.  Memory carry-over is still
 unchecked.
+
+## 15. The agent runs in the Claude Code sandbox, with four deny rules (Nov 19)
+
+The agent's Bash tool can run anything the user's account can.  The project
+settings (`.claude/settings.json`) now confine it.  Choices:
+
+- **The sandbox is on, and cannot be off by accident.**  `sandbox.enabled`
+  limits writes to the working directory and `$TMPDIR`.  `failIfUnavailable`
+  makes Bash fail when the sandbox cannot start, because a silent fallback to
+  unsandboxed commands would look the same as a working setup.
+  `allowUnsandboxedCommands: false` removes the retry outside the sandbox that
+  `dangerouslyDisableSandbox` would otherwise offer after a failure.
+- **`network.allowLocalBinding` is on.**  The tests start servers on port 0
+  on localhost (the `forge` fixture), which the sandbox refuses by default;
+  without it the gate cannot run in the agent's session.
+- **Nothing in `excludedCommands`.**  `scripts/new-worktree.sh` (it writes
+  outside the working directory) and the podman demo run from a terminal, not
+  from the agent.  An excluded script runs unsandboxed, and the agent can edit
+  a script in the repository, so excluding one would be a hole.
+- **Four deny rules**: `git push *`, `git reset --hard *`, `git clean *` and
+  `git branch -D *`.  They stop the commands that lose work or publish it
+  (the hard rules already say "nothing public").
+- **The deny rules are a speed bump, not the boundary.**  Probes run in a
+  session under these settings: a compound command (`echo ok; git push origin
+  main`) is denied, but `git -C . push origin main` and `bash -c 'git push
+  origin main'` are not matched and reached git.  The sandbox is the boundary;
+  the rules only catch the plain spelling early and say why.
+- **Untested:** whether the sandbox stops a push to a real remote.  The probes
+  could not tell, because this repository has no remote and git failed before
+  any connection.  Network egress goes through the sandbox's filtering proxy,
+  which should refuse an unlisted host, but that is unverified (backlog).
+- **Settings load only at session start**, so a session that began before the
+  file changed does not have the new rules until it is restarted.

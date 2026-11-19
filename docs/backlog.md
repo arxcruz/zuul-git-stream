@@ -243,13 +243,25 @@ section 1.
   tree, with nothing ahead of `main` and with an argument that is not the
   current branch.  The merge (a commit with two parents), the delete (`git
   branch -d`) and the second gate on `main` also ran live and passed.  Still
-  unchecked: that a compound command such as `git merge --no-ff -m x b &&
-  git push` is split before matching, and that `disable-model-invocation`
-  really stops the model from starting `/merge`.
+  unchecked: that `disable-model-invocation` really stops the model from
+  starting `/merge`.  Compound-command splitting is verified for deny rules
+  (`echo ok; git push origin main` was refused by `Bash(git push *)`, decision
+  15) and still unchecked for this skill's allow patterns: whether
+  `git merge --no-ff -m x b && git push` is split before matching, so that
+  the push is not covered by the `git merge --no-ff -m *` pattern.
   The gate on the branch does not include what `main` gained since the branch
   started; the gate on `main` after the merge covers that, and a red result
   there leaves the merge on local `main` for the user to deal with.  Check
   the two open points and tighten the patterns if either slips.
+- [S2] Push guard: the deny rule `Bash(git push *)` does not match
+  `git -C . push origin main` or `bash -c 'git push origin main'` (probed
+  Nov 19, decision 15), so only the sandbox stands between the agent and a
+  push.  When a remote is added, extend `.claude/hooks/no-commit-on-main.py`
+  (it already parses `-C` and `bash -c`) to refuse the agent's `git push` in
+  those spellings too, with a test in `tests/test_branch_guard_hook.py`; and
+  test a push through the sandbox against a real remote (run in an agent
+  session under `.claude/settings.json`, with a scratch remote and branch),
+  to learn whether the sandbox's network rules stop it.
 - [S2] `/merge` in a worktree leaves the session on `main`
   (`.claude/skills/merge/SKILL.md`, steps 3 to 6): the merge does
   `git switch main` and never switches back, and git lets only one worktree

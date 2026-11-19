@@ -177,6 +177,7 @@ tests/
   test_stop_hook.py       the Stop hook that runs the fast checks
   test_new_worktree.py    scripts/new-worktree.sh: refusals, venv, cleanup hint
   test_worktree_docs.py   the Worktrees section, decision 14, the backlog item
+  test_permissions_docs.py  the Permissions and sandbox section, decision 15
   test_spec_skill.py      the /spec skill: frontmatter, tools, spec format
   test_merge_skill.py     the /merge skill: tools, flow, git behavior, hook
   test_stream_identity.py who a stream message acts as (token, not "author")
@@ -366,6 +367,38 @@ session in the same folder.
   stale tree.
 - **The demo runs in one worktree only.**  It binds fixed ports (8080, 8090,
   9000 and 8000), so two worktrees cannot both run it.
+
+## Permissions and sandbox
+
+`.claude/settings.json` limits what the agent's Bash tool can do.  Why:
+[docs/decisions.md](docs/decisions.md) (decision 15).
+
+- **What it enables.**  `sandbox.enabled`: every Bash command runs in the OS
+  sandbox, which can write only inside the working directory and `$TMPDIR`
+  (a `touch ~/x` fails with `Operation not permitted`).
+  `failIfUnavailable`: if the sandbox cannot start, Bash fails instead of
+  running unsandboxed.  `allowUnsandboxedCommands: false`: no unsandboxed
+  retry, so `dangerouslyDisableSandbox` does nothing.
+  `network.allowLocalBinding`: the tests bind servers to port 0 on localhost
+  (see [Setting up and testing](#setting-up-and-testing)) and would fail
+  without it.
+- **Four deny rules**, for commands the agent should never run on its own:
+  `Bash(git push *)`, `Bash(git reset --hard *)`, `Bash(git clean *)` and
+  `Bash(git branch -D *)`.
+- **Settings load only at session start.**  A session that began before a
+  change to the file does not have it; restart it.
+- **The setup script and the demo run from a terminal, not from the agent.**
+  `scripts/new-worktree.sh` writes outside the working directory, and the
+  podman demo (`devenv/`) needs the container socket; the sandbox blocks both.
+  Nothing is in `excludedCommands`, on purpose: the agent could edit an
+  excluded script, and its next run would be unsandboxed.
+- **Limits found by running probes (Nov 19).**  Compound commands are denied:
+  `echo ok; git push origin main` was refused by the `git push *` rule.  But
+  `git -C . push origin main` and `bash -c 'git push origin main'` got past
+  the deny rules and reached git (they failed only because this repository has
+  no remote).  So the deny rules are a speed bump, and the sandbox is the
+  boundary.  Whether the sandbox stops a push to a real remote is untested
+  (backlog).
 
 ## Conventions
 
