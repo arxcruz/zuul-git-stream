@@ -597,15 +597,28 @@ def project_page(forge, p):
             mrs or '<tr><td class="meta">None yet</td></tr>', branches))
 
 
+def _log_link(log_url):
+    """A link to a job's log, only for an http(s) URL.
+
+    The URL comes from Zuul's builds API.  Escaping keeps it inside the
+    attribute, but a "javascript:" URL would still run when clicked, so any
+    other scheme is shown as text instead.
+    """
+    if not log_url:
+        return ''
+    if log_url.lower().startswith(('http://', 'https://')):
+        return '<a href="%sjob-output.txt">log</a>' % html.escape(log_url)
+    return html.escape(log_url)
+
+
 def escalation_box(e, link=False):
     title = ('<a href="%s">%s!%s</a> %s' % (
         e_url(e), html.escape(e['project']), e['mr'], html.escape(e['title']))
         if link else 'Escalated')
     jobs = ''.join(
         '<tr><td>%s</td><td>%d failures</td><td>%s</td></tr>' % (
-            html.escape(j['job']), j['attempts'],
-            '<a href="%sjob-output.txt">log</a>' % html.escape(j['log_url'])
-            if j.get('log_url') else '') for j in e['failing'])
+            html.escape(j['job']), j['attempts'], _log_link(j.get('log_url')))
+        for j in e['failing'])
     when = datetime.datetime.fromtimestamp(
         e['time'], datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
     stale = '' if e.get('current', True) else (
