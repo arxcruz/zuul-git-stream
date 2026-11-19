@@ -278,19 +278,15 @@ section 1.
   every command the skill runs matches a pattern.  `fnmatch` only
   approximates Claude Code's own matching, which is what the open points
   above are about.
-- [S2] Worktrees under the sandbox (AGENTS.md "Worktrees", decision 15): still
-  open is `/merge` run from a sandboxed linked worktree.  Observed so far
-  (Nov 19): commit, `git switch --detach`, `git switch <branch>` and
-  `scripts/check.sh` all work there, so the shared `.git` is writable.  Run
-  `/merge` in such a session and fix the docs or the settings to match.  Until
-  then `/merge` is unverified from a sandboxed worktree.
 - [S3] `/merge` and the `git branch -d` config-lock warning
-  (`.claude/skills/merge/SKILL.md`, AGENTS.md "Permissions and sandbox"): in
-  the first sandboxed `/merge`, `git branch -d` printed "could not lock config
-  file .git/config" yet deleted the branch.  The mechanism (`.git/config` being
-  a protected path) is inferred, and the exit status was not checked.  Run it
-  again and check the exit status, then make the skill treat the warning as
-  harmless only when that status is 0 (and still stop and report otherwise).
+  (`.claude/skills/merge/SKILL.md`, AGENTS.md "Permissions and sandbox"):
+  observed twice (original checkout, linked worktree), `git branch -d` printed
+  "could not lock config file .../.git/config" and "update of config-file
+  failed" yet deleted the branch.  In the worktree run the exit status was 0
+  and the line "Deleted branch ... (was 76314c7)" followed; the status is
+  observed once, not in the first run.  The mechanism (`.git/config` being a
+  protected path) is inferred.  Make the skill treat the warning as harmless
+  only when that status is 0 (and still stop and report otherwise).
 - [S2] `/spec` fails in a worktree (`.claude/skills/spec/SKILL.md`): it runs only
   from `main` with a clean tree, and no worktree can have `main` (decision 14).
   Workaround: write `docs/specs/<name>.md` by hand, in the skill's format, on

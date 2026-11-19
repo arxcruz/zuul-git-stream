@@ -334,8 +334,10 @@ session in the same folder.  Observed in a sandboxed session in a linked
 worktree (Nov 19): `git commit --allow-empty`, `git switch --detach`,
 `git switch <branch>` and `scripts/check.sh` (689 passed, exit 0) all worked,
 and the worktree's git-dir and the shared `.git` both live outside the working
-directory.  Not yet verified: `/merge` run from a sandboxed linked worktree
-(backlog).
+directory.  Also observed: `/merge` ran from a sandboxed linked worktree
+(the `worktree-sandbox-probe` docs branch, merge commit c098d13).  `git switch main`,
+`git merge --no-ff`, `git branch -d` and both gates (689 passed, exit 0) all
+worked; `main` was free because the original checkout was detached.
 
 - **Location and creation.**  Worktrees live next to the repository, as
   `../<repo>-<type>-<topic>`, and are created with
@@ -420,13 +422,15 @@ directory.  Not yet verified: `/merge` run from a sandboxed linked worktree
   free for the next worktree.  That `.mcp.json` and the other protected paths behave
   the same is inferred from the sandbox docs, not probed, and the skill does
   not check for it yet (backlog).
-- **`git branch -d` warns about `.git/config` in `/merge`.**  Observed in the
-  first sandboxed `/merge` (original checkout): `git branch -d` printed
-  "could not lock config file .git/config" and the branch was deleted anyway.
+- **`git branch -d` warns about `.git/config` in `/merge`.**  Observed twice,
+  in the original checkout and in a linked worktree: `git branch -d` printed
+  "could not lock config file .../.git/config" and "update of config-file
+  failed", and the branch was deleted anyway.  In the worktree run the exit
+  status was 0 and the last line was "Deleted branch ... (was 76314c7)"; the
+  status was not checked in the first run, so it is observed once.
   Inferred, not probed: `.git/config` is a protected path, so git cannot
-  rewrite it to drop the branch's config section.  The exit status of that
-  command was not checked, so whether the warning is harmless is unconfirmed
-  (backlog).
+  rewrite it to drop the branch's config section.  The skill should treat the
+  warning as harmless only when the status is 0 (backlog).
 
 ## Conventions
 
