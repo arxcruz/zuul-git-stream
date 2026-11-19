@@ -177,3 +177,12 @@ venv, so each gets its own git worktree.  Choices:
 - **Not solved:** a session left on `main` after `/merge` blocks the other
   worktree's `git switch main` (backlog).  The demo's fixed ports allow it in
   one worktree only.
+
+Trial, Nov 19: tried in a real worktree.  The script made the sibling folder
+and its venv, and the editable install and the Zuul import resolve inside the
+worktree.  The project hooks and skills load there; the stop hook ran ruff
+there and blocked on a missing venv; the gate passed (625 passed, 27 xfailed);
+the detached original refuses `git commit`.  `CLAUDE_PROJECT_DIR` is empty in
+the Bash tool, but the hooks resolve their paths anyway.  Not yet verified:
+memory carry-over, parallel load with two sessions, and `/merge` from a
+worktree.
