@@ -293,12 +293,103 @@ def test_unreadable_input_does_not_block(repo, run_hook):
     assert 'stop-checks' in result.err
 
 
-def test_a_missing_venv_does_not_block(repo, run_hook):
-    edit(repo)
+def remove_venv(repo):
     os.remove(repo / '.venv' / 'bin' / 'python')
+
+
+def restore_venv(repo):
+    write(repo, '.venv/bin/python', STUB).chmod(0o755)
+
+
+def test_a_missing_venv_blocks_and_says_how_to_make_one(repo, run_hook):
+    """A fresh worktree has no .venv (it is git-ignored): say so loudly
+    instead of letting the agent finish with no checks run."""
+    edit(repo)
+    remove_venv(repo)
     result = run_hook(repo)
+    assert result.code == 0 and result.blocked
+    assert str(repo / '.venv' / 'bin' / 'python') in result.reason
+    assert 'uv venv' in result.reason
+    assert 'AGENTS.md' in result.reason
+    assert result.calls == []
+
+
+@pytest.mark.parametrize('branch', ['main', 'master'])
+def test_a_missing_venv_is_not_reported_on_a_protected_branch(
+        tmp_path, run_hook, branch):
+    repo = make_repo(tmp_path / 'protected', branch)
+    edit(repo)
+    remove_venv(repo)
+    result = run_hook(repo)
+    assert (result.code, result.out, result.calls) == (0, '', [])
+
+
+def test_a_missing_venv_is_not_reported_on_a_detached_head(repo, run_hook):
+    git(repo, 'checkout', '-q', '--detach')
+    edit(repo)
+    remove_venv(repo)
+    result = run_hook(repo)
+    assert (result.code, result.out, result.calls) == (0, '', [])
+
+
+def test_a_missing_venv_is_not_reported_for_docs_only_changes(
+        repo, run_hook):
+    edit(repo, 'docs/guide.md', 'changed\n')
+    remove_venv(repo)
+    result = run_hook(repo)
+    assert (result.code, result.out, result.calls) == (0, '', [])
+
+
+@pytest.mark.parametrize('active', [True, False])
+def test_a_missing_venv_blocks_once_per_tree(repo, run_hook, active):
+    """Blocking again cannot help: the agent changed nothing."""
+    edit(repo)
+    remove_venv(repo)
+    assert run_hook(repo).blocked
+    again = run_hook(repo, active=active)
+    assert (again.code, again.out, again.calls) == (0, '', [])
+    assert '.venv' in again.err
+
+
+def test_a_changed_tree_with_no_venv_is_blocked_again(repo, run_hook):
+    edit(repo)
+    remove_venv(repo)
+    assert run_hook(repo).blocked
+    edit(repo, text='x = 3\n')
+    assert run_hook(repo, active=True).blocked
+
+
+def test_a_venv_made_after_the_block_gets_the_tree_checked(repo, run_hook):
+    """The block was about the venv, not the code: once it exists the same
+    tree must be checked, not waved through as 'failed and unchanged'."""
+    edit(repo)
+    remove_venv(repo)
+    assert run_hook(repo).blocked
+    restore_venv(repo)
+    result = run_hook(repo, active=True)
     assert (result.code, result.out) == (0, '')
-    assert '.venv' in result.err
+    assert result.calls == [RUFF, PYTEST]
+
+
+def test_a_venv_made_after_the_block_reports_failures(repo, run_hook):
+    edit(repo)
+    remove_venv(repo)
+    assert run_hook(repo).blocked
+    restore_venv(repo)
+    result = run_hook(repo, active=True, STUB_PYTEST_FAIL='boom')
+    assert result.blocked and 'boom' in result.reason
+
+
+def test_a_missing_venv_block_changes_nothing_in_the_repository(
+        repo, run_hook):
+    edit(repo)
+    remove_venv(repo)
+    before = (git(repo, 'status', '--porcelain'), git(repo, 'diff'),
+              git(repo, 'rev-parse', 'HEAD'))
+    run_hook(repo)
+    after = (git(repo, 'status', '--porcelain'), git(repo, 'diff'),
+             git(repo, 'rev-parse', 'HEAD'))
+    assert before == after
 
 
 def test_ruff_not_installed_does_not_block(repo, run_hook):

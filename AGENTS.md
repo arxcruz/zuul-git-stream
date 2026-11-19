@@ -106,8 +106,10 @@ check fails it blocks the stop and hands you the output; fix it and finish
 again.  It does nothing on `main`/`master`, never edits a tracked file,
 skips a tree it already checked (state in `$TMPDIR/git-stream-stop-hook/`),
 lets an unchanged failing tree through rather than blocking forever, and fails
-open (a note on stderr) when the venv, ruff or time is missing.  **It is not
-the gate**: it skips the slow tests, so only `scripts/check.sh` means done.
+open (a note on stderr) when ruff or time is missing.  A missing `.venv`
+(git-ignored, so every new worktree starts without one) is the exception: it
+blocks once per tree and names the setup commands below.  **It is not the
+gate**: it skips the slow tests, so only `scripts/check.sh` means done.
 Covered by `tests/test_stop_hook.py`; the reasons are in
 [docs/decisions.md](docs/decisions.md) (decision 13).
 

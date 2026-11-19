@@ -129,8 +129,17 @@ the stop with the failure output.  Choices:
   dirty branch does not cost 10 s on every chat turn); a tree that failed and
   did not change is let through, since another block cannot help.  Any change
   is re-checked.
-- **Fails open**: a missing venv or ruff, bad input or a check over 90 s
+- **Fails open**: a missing ruff, bad input or a check over 90 s
   (`STOP_HOOK_TIMEOUT`) prints a note and lets the agent stop; a broken hook
   must not trap it.
+- **A missing venv blocks** (changed from fail-open when worktrees were
+  added): `.venv` is git-ignored, so a fresh worktree has none, and an agent
+  that finishes with no checks run looks like one that passed.  With a code
+  change and no `.venv/bin/python` the hook blocks and names the AGENTS.md
+  setup commands.  It blocks once per tree fingerprint, recorded as `no-venv`
+  rather than `fail`, so once the venv exists the same tree is checked
+  instead of being let through as "failed and unchanged"; the same tree again
+  with no venv is let through with a note.  Docs-only changes, `main`/`master`
+  and a detached HEAD stay silent.
 - **Not the gate**: it skips the slow tests; `scripts/check.sh` decides
   "done".

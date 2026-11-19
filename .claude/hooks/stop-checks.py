@@ -15,10 +15,16 @@ It does nothing (and costs nothing) when:
     (markdown never counts), so docs-only and chat-only turns stay instant;
   - the working tree is the same one that already passed, or the same one
     that already failed (see below);
-  - anything it needs is missing or broken (no .venv, no ruff, bad input, a
-    check that takes longer than STOP_HOOK_TIMEOUT seconds, default 90).  A
-    broken hook must not trap the agent, so these print a note on stderr and
-    exit 0.
+  - anything it needs is missing or broken (no ruff, bad input, a check that
+    takes longer than STOP_HOOK_TIMEOUT seconds, default 90).  A broken hook
+    must not trap the agent, so these print a note on stderr and exit 0.
+
+A missing `.venv` is the exception: it is git-ignored, so a fresh worktree has
+none, and finishing with no checks run would look like a pass.  When code
+changed and there is no `.venv/bin/python`, the hook blocks and names the
+AGENTS.md setup commands.  It blocks once per tree (the result is stored as
+`no-venv`, not `fail`, so the same tree is checked as soon as the venv
+exists); the same tree again is let through with a note on stderr.
 
 Loops.  Claude Code ends the turn after 8 blocks in a row, and sets
 `stop_hook_active` while it is continuing because of a stop hook.  The hook
@@ -52,6 +58,16 @@ DEFAULT_TIMEOUT = 90
 RUFF = ['-m', 'ruff', 'check', '.']
 PYTEST = ['-m', 'pytest', '-n', 'auto', '-m', 'not slow', '-x', '-q']
 NO_TESTS_COLLECTED = 5
+# What AGENTS.md ("Setting up and testing") says to run; .venv is git-ignored.
+SETUP = """\
+.venv is git-ignored, so a new checkout or worktree has none.  Set it up as
+AGENTS.md says, from %(root)s:
+
+  uv venv -p 3.12 .venv
+  uv pip install -p .venv/bin/python -e '.[test,lint]'
+  uv pip install -p .venv/bin/python 'git+https://opendev.org/zuul/zuul'
+
+Then finish again.  This is reported once for this tree."""
 
 
 def note(message):
@@ -183,12 +199,19 @@ def main():
     head = (git(root, 'rev-parse', 'HEAD') or '').strip()
     current = fingerprint(root, head, status, paths)
     path = state_path(data.get('session_id'))
-    if load_state(path).get('fingerprint') == current:
+    state = load_state(path)
+    seen = state.get('fingerprint') == current
+    if seen and state.get('result') != 'no-venv':
         return 0  # already checked this exact tree
 
     python = os.path.join(root, '.venv', 'bin', 'python')
     if not os.access(python, os.X_OK):
-        note('no %s; set up the venv as in AGENTS.md' % python)
+        if seen:  # blocked for this tree already; blocking again cannot help
+            note('still no %s; set up the venv as in AGENTS.md' % python)
+            return 0
+        save_state(path, current, 'no-venv')
+        block('The checks cannot run: there is no %s.' % python,
+              SETUP % {'root': root})
         return 0
     try:
         timeout = float(os.environ.get('STOP_HOOK_TIMEOUT') or
