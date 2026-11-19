@@ -330,8 +330,12 @@ Quote URLs containing `?` in zsh, or the shell globs them.
 ## Worktrees
 
 To run parallel sessions, give each its own git worktree, never a second
-session in the same folder.  Unverified under the sandbox: whether a linked
-worktree's shared `.git` is inside its write scope (backlog).
+session in the same folder.  Observed in a sandboxed session in a linked
+worktree (Nov 19): `git commit --allow-empty`, `git switch --detach`,
+`git switch <branch>` and `scripts/check.sh` (689 passed, exit 0) all worked,
+and the worktree's git-dir and the shared `.git` both live outside the working
+directory.  Not yet verified: `/merge` run from a sandboxed linked worktree
+(backlog).
 
 - **Location and creation.**  Worktrees live next to the repository, as
   `../<repo>-<type>-<topic>`, and are created with
@@ -416,6 +420,13 @@ worktree's shared `.git` is inside its write scope (backlog).
   free for the next worktree.  That `.mcp.json` and the other protected paths behave
   the same is inferred from the sandbox docs, not probed, and the skill does
   not check for it yet (backlog).
+- **`git branch -d` warns about `.git/config` in `/merge`.**  Observed in the
+  first sandboxed `/merge` (original checkout): `git branch -d` printed
+  "could not lock config file .git/config" and the branch was deleted anyway.
+  Inferred, not probed: `.git/config` is a protected path, so git cannot
+  rewrite it to drop the branch's config section.  The exit status of that
+  command was not checked, so whether the warning is harmless is unconfirmed
+  (backlog).
 
 ## Conventions
 
