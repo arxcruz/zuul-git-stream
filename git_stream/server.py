@@ -313,6 +313,9 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
 
             if not rest:
                 return self._json(self.forge.project_json(p))
+            if rest == ['data'] and self.command == 'GET':
+                return self._json(self.forge.project_data(
+                    p['name'], params.get('sha')))
             if rest[:2] == ['repository', 'branches']:
                 return self._branches(p, rest[2:], params)
             if (rest[:2] == ['repository', 'files'] and len(rest) > 3 and
@@ -334,6 +337,9 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                     return self._json(self.forge.mr_json(p, mr))
                 if sub == 'approvals':
                     return self._json(self.forge.approvals_json(p, mr))
+                if sub == 'data':
+                    return self._json(self.forge.mr_data(
+                        p['name'], mr['iid'], params.get('sha')))
                 if sub == 'notes':
                     notes = self.forge.notes(p['name'], mr['iid'])
                     if params.get('sort', 'desc') == 'desc':

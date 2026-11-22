@@ -78,6 +78,15 @@ webhooks carry no `callback` at all: `_hook_mr_attrs` removes it.
 `test_an_mr_with_a_callback_url_looks_the_same_to_zuul` drives Zuul's client
 and webhook parser against such an MR.
 
+An MR made from `data` alone (no files) is an ordinary MR to Zuul: its commit
+has the target's tree and a message with `Stream-*` trailers that make it
+unique, so the sha, `diff_refs` and `refs/merge-requests/<iid>/head` behave as
+usual, and a change of the data is a new commit and an `update` webhook with
+`oldrev`.  The data itself is in no payload Zuul reads; jobs fetch it from
+`GET .../merge_requests/<iid>/data`.
+`test_a_message_only_mr_looks_the_same_to_zuul` drives Zuul's client and
+parser against one.
+
 ## Git
 
 - Zuul clones `<cloneurl>/<project>.git` over HTTP and fetches

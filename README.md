@@ -102,10 +102,10 @@ An event is a JSON object with an `action`.  Send it to `POST
 | action | fields | GitLab event Zuul gets |
 |--------|--------|------------------------|
 | `create_project` | `project`, `files` | none |
-| `push` | `project`, `files`, `branch`, `message` | push |
+| `push` | `project`, `files` or `data`, `branch`, `message` | push |
 | `tag` | `project`, `tag`, `rev` | tag push |
-| `open_mr` | `project`, `title`, `files`, `description`, `target_branch`, `key`, `labels`, `max_attempts`, `callback_url` | merge request opened (Zuul sees no `callback_url`) |
-| `update_mr` | `project`, `mr`, `files`, `title`, `description` | merge request changed |
+| `open_mr` | `project`, `title`, `files`, `description`, `target_branch`, `key`, `labels`, `max_attempts`, `callback_url`, `data` | merge request opened (Zuul sees no `callback_url`) |
+| `update_mr` | `project`, `mr`, `files`, `title`, `description`, `data` | merge request changed |
 | `comment` | `project`, `mr`, `note` | comment |
 | `label` | `project`, `mr`, `add`, `remove` | merge request labeled |
 | `approve`, `unapprove` | `project`, `mr` | approved, unapproved |
@@ -113,6 +113,14 @@ An event is a JSON object with an `action`.  Send it to `POST
 | `merge` | `project`, `mr`, `squash` | push and merged |
 
 - `files` maps paths to text; `null` deletes a file.
+- `data` is a JSON object (at most 64 KiB and 8 levels deep) that travels
+  with the version it was sent with, instead of a file.  Every change of it
+  is a new commit, so Zuul sees a changed merge request; an unchanged `data`
+  changes nothing.  Jobs read it back, anonymously, from
+  `GET /api/v4/projects/<project>/merge_requests/<iid>/data` (add `?sha=`
+  for an older version).  Merging the merge request, or a `push` of `data`
+  to the default branch, makes it the project's current data at
+  `GET /api/v4/projects/<project>/data`.  Needs `sqlite3`.
 - Senders don't have to keep track of merge request numbers: a merge
   request can be given a `key` when it's opened (e.g. a bundle ID) and
   addressed by it later (`"mr": "b-0042"`).  Opening a merge request with a key that is still

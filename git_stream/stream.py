@@ -11,9 +11,10 @@ forge assigns, and a message "id" makes a resent message harmless.
   {"action": "tag", "project": "p", "tag": "v1", "rev": "master"}
   {"action": "open_mr", "project": "p", "key": "b-1", "title": "...",
    "description": "...", "files": {...}, "target_branch": "master",
-   "max_attempts": 3, "callback_url": "https://announcer.example.com/hook"}
+   "max_attempts": 3, "callback_url": "https://announcer.example.com/hook",
+   "data": {...}}
   {"action": "update_mr", "project": "p", "mr": "b-1", "files": {...},
-   "title": "...", "description": "..."}
+   "title": "...", "description": "...", "data": {...}}
   {"action": "comment", "project": "p", "mr": "b-1", "note": "recheck"}
   {"action": "label", "project": "p", "mr": 3, "add": [...], "remove": [...]}
   {"action": "approve" | "unapprove" | "close" | "reopen" | "merge",
@@ -34,11 +35,24 @@ merge request there: "passed" when Zuul approves it, "escalated" when the
 retries run out, each at most once per sha.  One attempt, in the background;
 a redelivered open_mr keeps the first URL.  See the README, "Callbacks".
 
+A "data" object (open_mr, update_mr, push; at most 64 KiB and 8 levels deep,
+else 400) is kept with the version it came with: every change of the data is
+a new commit, so Zuul sees a changed MR, and jobs read it back from
+GET /api/v4/projects/<p>/merge_requests/<iid>/data (``?sha=`` for an older
+version).  Merging the MR, or pushing to the default branch, makes it the
+project's current data, at GET /api/v4/projects/<p>/data.
+
 In "files", a null value deletes the file.  Branch and tag names must be ones
 git accepts (400 otherwise); tagging an existing name is a 409.
 """
 
+import json
+
 from git_stream.forge import ForgeError
+
+# "data" is a JSON object of at most this many bytes, nested at most this deep.
+DATA_MAX_BYTES = 65536
+DATA_MAX_DEPTH = 8
 
 
 def _require(msg, *names):
@@ -53,6 +67,29 @@ def _files(msg):
             isinstance(v, (str, type(None))) for v in files.values()):
         raise ForgeError('"files" must map paths to text (or null)')
     return files
+
+
+def _depth(value):
+    if isinstance(value, dict):
+        return 1 + max(map(_depth, value.values()), default=0)
+    if isinstance(value, list):
+        return 1 + max(map(_depth, value), default=0)
+    return 0
+
+
+def _data(msg):
+    """The message's "data" (a bounded JSON object), or None."""
+    data = msg.get('data')
+    if data is None:
+        return None
+    if not isinstance(data, dict):
+        raise ForgeError('"data" must be a JSON object')
+    if _depth(data) > DATA_MAX_DEPTH:
+        raise ForgeError('"data" is nested more than %d levels deep'
+                         % DATA_MAX_DEPTH)
+    if len(json.dumps(data).encode('utf8')) > DATA_MAX_BYTES:
+        raise ForgeError('"data" is larger than %d bytes' % DATA_MAX_BYTES)
+    return data
 
 
 def _int(msg, name):
@@ -136,9 +173,11 @@ def _create_project(forge, msg, by):
 
 
 def _push(forge, msg, by):
-    _require(msg, 'files')
+    if not msg.get('files') and msg.get('data') is None:
+        raise ForgeError('push: "files" or "data" is required')
     return forge.push(msg['project'], _files(msg), msg.get('message'), by,
-                      branch=msg.get('branch'), start=msg.get('start'))
+                      branch=msg.get('branch'), start=msg.get('start'),
+                      data=_data(msg))
 
 
 def _tag(forge, msg, by):
@@ -155,7 +194,7 @@ def _open_mr(forge, msg, by):
         message=msg.get('message'), key=msg.get('key'),
         labels=_labels(msg.get('labels')),
         max_attempts=_int(msg, 'max_attempts'),
-        callback_url=msg.get('callback_url'))
+        callback_url=msg.get('callback_url'), data=_data(msg))
 
 
 def _update_mr(forge, msg, by):
@@ -163,7 +202,7 @@ def _update_mr(forge, msg, by):
     return forge.update_mr(
         msg['project'], msg['mr'], by, files=_files(msg),
         title=msg.get('title'), description=msg.get('description'),
-        message=msg.get('message'))
+        message=msg.get('message'), data=_data(msg))
 
 
 def _comment(forge, msg, by):

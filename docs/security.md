@@ -87,6 +87,20 @@ a failed message.  Bodies over 16 KiB are logged as
 trimmed: retention is in `docs/backlog.md`.  Without `sqlite3` there is no log
 and the endpoint answers 501.  Tested in `tests/test_message_log.py`.
 
+## Data on merge requests and pushes
+
+`data` (`open_mr`, `update_mr`, `push`) is stored in `state.db` (`mr_data`,
+`project_data`: append-only, never rewritten by the state mirror) and read
+back by jobs from `GET /api/v4/projects/<p>/merge_requests/<iid>/data` and
+`GET /api/v4/projects/<p>/data`.  Like every other API GET these are
+anonymous, so **anything in `data` is readable by whoever can reach the API**:
+put no secrets in it.  It must be a JSON object of at most 64 KiB, nested at
+most 8 levels (a 400 otherwise, before anything is created); a version has its
+own row, so older versions stay readable by `?sha=`.  It never appears in
+what Zuul sees: not in the MR JSON, not in a webhook.  It is also in the
+message log's body.  Tested in `tests/test_mr_data.py` and
+`test_a_message_only_mr_looks_the_same_to_zuul`.
+
 ## Callbacks: git-stream POSTs to a URL the sender chooses
 
 `open_mr` may carry a `callback_url`, and git-stream then POSTs the outcome

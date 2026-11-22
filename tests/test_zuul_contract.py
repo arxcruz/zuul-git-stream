@@ -127,6 +127,48 @@ def test_an_mr_with_a_callback_url_looks_the_same_to_zuul(make_forge):
     assert 's3cret' not in json.dumps(got)
 
 
+def test_a_message_only_mr_looks_the_same_to_zuul(make_forge):
+    """An MR made from data alone (no files) is an ordinary MR to Zuul: a
+    sha with diff_refs, a head ref a clone can fetch, webhooks that parse,
+    and a changed-MR event when its data changes."""
+    import subprocess
+    forge = make_forge(report_users=['zuul'])
+    forge.send({'action': 'create_project', 'project': 'bundles',
+                'files': {'README.md': 'bundles\n'}})
+    client = gitlab.GitlabAPIClient(forge.url, API_TOKEN, 60, False)
+    parse = parser_for(forge)
+    plain = open_mr(forge, key='plain')
+    mr = forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'T',
+                     'key': 'd-1', 'data': {'id': 'd-1', 'flaky': 0.3}})
+
+    got, got_plain = (client.get_mr('bundles', m['iid']) for m in (mr, plain))
+    assert set(got) == set(got_plain)
+    assert got['diff_refs']['head_sha'] == got['sha'] == mr['sha']
+    assert got['merge_status'] == 'can_be_merged'
+    assert 'flaky' not in json.dumps(got)  # the data is not Zuul's business
+
+    ref = 'refs/merge-requests/%d/head' % mr['iid']
+    repo = forge.forge.repo(forge.forge.project('bundles'))
+    assert repo.resolve(ref) == mr['sha']
+    clone = subprocess.run(
+        ['git', 'ls-remote', '%s/bundles.git' % forge.url, ref],
+        capture_output=True, text=True, check=True).stdout
+    assert clone.split()[0] == mr['sha']
+
+    updated = forge.send({'action': 'update_mr', 'project': 'bundles',
+                          'mr': 'd-1', 'data': {'id': 'd-1', 'flaky': 0.0}})
+    assert client.get_mr('bundles', mr['iid'])['sha'] == updated['sha']
+    events = [parse(h) for h in forge.hooks_of('merge_request')
+              if h['object_attributes']['iid'] == mr['iid']]
+    assert [e.action for e in events] == ['opened', 'changed']
+    assert events[-1].patch_number == updated['sha']
+    for hook in forge.hooks:
+        assert 'flaky' not in json.dumps(hook)
+
+    client.comment_mr('bundles', mr['iid'], 'Build succeeded.')
+    assert client.approve_mr('bundles', mr['iid'], updated['sha'])['approved']
+
+
 def test_branches_as_read_by_zuul(forge, client):
     forge.send({'action': 'push', 'project': 'bundles', 'branch': 'stable',
                 'files': {'x': '1'}})
