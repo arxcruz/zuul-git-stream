@@ -166,3 +166,16 @@ def test_dispatch_reads_the_bundle_from_the_forge(forge):
     assert dispatch.bundle_data(api, 'missing', 1, 'x') == {}
     with pytest.raises(urllib.error.URLError):  # a forge that is down
         dispatch.bundle_data('http://127.0.0.1:9/api/v4', 'bundles', 1, 'x')
+
+
+@pytest.mark.parametrize('length', ['abc', '-1', str(10 * 1024 * 1024 + 1)])
+def test_the_config_server_refuses_a_bad_content_length(served, length):
+    import socket
+    _, _, url = served
+    host, port = url[len('http://'):].split(':')
+    with socket.create_connection((host, int(port)), timeout=5) as s:
+        s.sendall(('POST /zuul-config/git-upload-pack HTTP/1.0\r\n'
+                   'Content-Type: application/x-git-upload-pack-request\r\n'
+                   'Content-Length: %s\r\n\r\n' % length).encode())
+        reply = s.recv(200)
+    assert reply.startswith(b'HTTP/1.0 400'), reply
