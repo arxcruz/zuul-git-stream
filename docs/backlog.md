@@ -175,9 +175,6 @@ section 1.
   done, by decision: an allowlist of callback URLs (any stream sender can make
   git-stream POST to any http(s) host, internal ones included), an auth header
   on callbacks, retries, durable delivery, and per-failure events.
-- [S2] The seeder is not fault-tolerant against pre-existing state (the "Known
-  gap" in `AGENTS.md`): an empty `state.db` makes it recreate projects whose
-  repositories exist, and `update-ref` crash-loops.
 - [S1 (unverified)] `retry.results` assumes Zuul returns builds newest first and that `change`
   and `patchset` mean the MR id and sha; only the parameter and field names
   are checked against Zuul's code, not the ordering.  Escalation URLs get no

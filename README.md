@@ -101,7 +101,7 @@ An event is a JSON object with an `action`.  Send it to `POST
 
 | action | fields | GitLab event Zuul gets |
 |--------|--------|------------------------|
-| `create_project` | `project`, `files` | none |
+| `create_project` | `project`, `files` | none (without files, a placeholder: one commit, empty tree) |
 | `push` | `project`, `files` or `data`, `branch`, `message` | push |
 | `tag` | `project`, `tag`, `rev` | tag push |
 | `open_mr` | `project`, `title`, `files`, `description`, `target_branch`, `key`, `labels`, `max_attempts`, `callback_url`, `data` | merge request opened (Zuul sees no `callback_url`) |
@@ -113,6 +113,9 @@ An event is a JSON object with an `action`.  Send it to `POST
 | `merge` | `project`, `mr`, `squash` | push and merged |
 
 - `files` maps paths to text; `null` deletes a file.
+- `open_mr` and `push` create a project that does not exist yet, as a
+  placeholder (one commit with an empty tree; `open_mr` on its
+  `target_branch`).  Every other action on a missing project is a 404.
 - `data` is a JSON object (at most 64 KiB and 8 levels deep) that travels
   with the version it was sent with, instead of a file.  Every change of it
   is a new commit, so Zuul sees a changed merge request; an unchanged `data`

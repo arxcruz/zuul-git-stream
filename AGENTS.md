@@ -496,9 +496,6 @@ view is authoritative while running).  Not done: see
 adapter, notifying the announcing system) and [docs/backlog.md](docs/backlog.md)
 (fixes and specs waiting for code).
 
-Known gap: the seeder is not fault-tolerant when starting with git repos
-on disk but no forge state (e.g. an old instance's `state.json`, which is
-no longer read unless SQLite is unavailable, or an empty `state.db`): it
-tries to re-create projects whose repos already exist, so `update-ref`
-crash-loops.  Reset the forge volume (`clean.sh`) or make the seeder skip
-existing repos before upgrading an instance this way.
+Fixed: `create_project` adopts a repository already on disk with its branch
+(it used to re-commit and crash-loop in `update-ref`), so starting with repos
+but no forge state works; it logs "Adopted the repository of project ...".

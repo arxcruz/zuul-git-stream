@@ -42,6 +42,9 @@ GET /api/v4/projects/<p>/merge_requests/<iid>/data (``?sha=`` for an older
 version).  Merging the MR, or pushing to the default branch, makes it the
 project's current data, at GET /api/v4/projects/<p>/data.
 
+open_mr and push create a project that does not exist yet (a placeholder: one
+commit with an empty tree); every other action on one is a 404.
+
 In "files", a null value deletes the file.  Branch and tag names must be ones
 git accepts (400 otherwise); tagging an existing name is a 409.
 """
@@ -162,6 +165,9 @@ def _apply(forge, msg, sender):
     if msg.get('id') is not None and forge.seen('%s' % msg['id']):
         return {'duplicate': True, 'id': msg['id']}
     _require(msg, 'project')
+    if (not isinstance(msg['project'], (str, int))
+            or isinstance(msg['project'], bool)):
+        raise ForgeError('"project" must be a project name')
     return ACTIONS[action](forge, msg, by)
 
 

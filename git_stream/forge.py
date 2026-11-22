@@ -706,7 +706,12 @@ class Forge:
 
     def create_project(self, name, files=None, branch='master',
                        description='', by='git-stream'):
-        """Create a project with an initial commit; no-op if it exists."""
+        """Create a project with an initial commit; no-op if it exists.
+
+        Without files the project is a placeholder: one commit with an empty
+        tree.  A repository already on disk with that branch (state lost, or
+        an old instance's) is adopted as it is instead of being committed to.
+        """
         name = name.strip('/')
         if not name or name.endswith('.git') or '..' in name:
             raise ForgeError('invalid project name %r' % name)
@@ -720,14 +725,32 @@ class Forge:
                  'next_iid': 1}
             self.state['next_project_id'] += 1
             repo = Repo.create(self.repo(p).path, branch)
-            files = files or {'README.md': '# %s\n' % name}
-            sha = repo.commit(None, files, 'Initial commit', by,
-                              '%s@git-stream.local' % by)
-            repo.update_ref('refs/heads/' + branch, sha, ZERO_SHA)
+            if repo.resolve('refs/heads/' + branch) is None:
+                sha = repo.commit(None, files or {}, 'Initial commit', by,
+                                  '%s@git-stream.local' % by)
+                repo.update_ref('refs/heads/' + branch, sha, ZERO_SHA)
+            else:
+                log.warning('Adopted the repository of project %s, which '
+                            'was already on disk', name)
             self.state['projects'][name] = p
             self.save()
             log.info('Created project %s', name)
             return p
+
+    def ensure_project(self, name, by, branch=None):
+        """The project called name, created as a placeholder if it is new.
+
+        Only a name is created from: any other reference (a numeric id, a
+        non-string) that finds nothing is the usual 404.
+        """
+        with self.lock:
+            try:
+                return self.project(name)
+            except ForgeError as e:
+                if e.status != 404 or not isinstance(name, str):
+                    raise
+            return self.create_project(name, branch=branch or 'master',
+                                       by=by)
 
     def push(self, project, files, message, by, branch=None, start=None,
              data=None):
@@ -743,7 +766,7 @@ class Forge:
         if data is not None:
             self._data_store()
         with self.lock:
-            p = self.project(project)
+            p = self.ensure_project(project, by)
             branch = branch or p['default_branch']
             repo = self.repo(p)
             ref = 'refs/heads/' + branch
@@ -793,7 +816,7 @@ class Forge:
         if data is not None:
             self._data_store()
         with self.lock:
-            p = self.project(project)
+            p = self.ensure_project(project, by, target_branch)
             if key is not None and str(key) in p['keys']:
                 mr = p['mrs'][str(p['keys'][str(key)])]
                 if mr['state'] == 'opened':
