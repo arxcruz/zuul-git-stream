@@ -19,7 +19,8 @@ Read this first, then the doc that matches your task:
 
 git-stream is a small **GitLab-compatible fake forge**.  Other systems
 (a build system announcing a container bundle, a release tool) send it
-JSON events over HTTP; it turns them into git commits and merge requests
+JSON messages over HTTP; it turns them into merge requests (backed by the
+minimal git commits Zuul needs) and records them in SQLite
 and sends Zuul the **webhooks a real GitLab would send**.  Zuul talks to
 it with its **stock GitLab driver**, so Zuul stays completely unmodified.
 
@@ -45,6 +46,10 @@ persistent failures are escalated (Jira later).
   described in [Workflow](#workflow).
 - **Don't touch `../zuul-kafka-driver`.**  It has uncommitted work the
   user wants left as it is.
+- **Messages, not files.**  git-stream never holds job definitions or Zuul
+  config, and no sender puts files in it: `files` in a message is a 400, a
+  sender sends `data` (decision 16).  Zuul's config repositories are real
+  repositories elsewhere.
 - **Stay GitLab-compatible.**  Any API/webhook change must keep Zuul's
   GitLab driver working; `tests/test_zuul_contract.py` must pass.
 - **Standard library only** for `git_stream/` (plus `git` >= 2.38 on the
@@ -492,7 +497,12 @@ worked; `main` was free because the original checkout was detached.
 
 ## Current state
 
-Working and verified live in the demo: announce → test → results as MR
+Messages, not files (decision 16): senders send `data`, never `files`;
+git-stream holds placeholder projects and no job definitions (Zuul's config is
+a real git repository, served to the demo by `devenv/gitserver.py`).  The
+demo was reworked for that and **has not been run under podman yet** (the
+pieces were checked without Zuul; see docs/demo.md).  Before that rework it
+worked live as follows: announce → test → results as MR
 comments and approval → automatic retries → escalation shown on pages →
 test with an unmerged fix via `Depends-On` → approval.  The forge keeps
 its state in `<data>/state.db` and logs job activity in

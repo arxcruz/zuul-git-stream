@@ -91,7 +91,11 @@ parser against one.
 
 - Zuul clones `<cloneurl>/<project>.git` over HTTP and fetches
   `refs/merge-requests/<iid>/head` to test an MR.  Those refs must be
-  advertised (git-stream serves every ref).
+  advertised (git-stream serves every ref).  git-stream's projects are
+  placeholders: an empty tree, and MR commits with that tree, so a job gets
+  its data from the API, not from the checkout (decision 16).  Zuul's config
+  and job repositories are not here: in production they are real repositories
+  on other connections, and in the demo a plain `git` connection.
 - Zuul loads config from **every branch** of untrusted projects; don't
   create stray branches (git-stream never creates MR source branches).
 

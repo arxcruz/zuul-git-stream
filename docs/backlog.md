@@ -195,7 +195,16 @@ section 1.
   is never trimmed and has no UI or read token of its own; it grows with every
   message.  Needs a retention setting (age or count), a page, and probably a
   separate read token (`docs/specs/message-only-streams.md`, out of scope).
-- [S3] The demo UI (`devenv/demo-ui/app.py`, 357 lines) has no tests.
+- [S3] Out of scope of `docs/specs/message-only-streams.md`: a message-log
+  page or UI; a read token separate from the stream token (the data endpoints
+  are anonymous, so `data` must hold no secrets); migrating an existing
+  forge whose MRs carry `bundle.yaml` as files (they keep working, but a job
+  now reads `data`, so an old MR has none).
+- [S3] The demo's Zuul side has only been checked piece by piece (the
+  scripts, the YAML), not under podman: see the verification steps in
+  `docs/specs/message-only-streams.md` ("Done means") once run.
+- [S3] The demo UI (`devenv/demo-ui/app.py`) has few tests
+  (`tests/test_demo_scripts.py` covers its messages, not the page or Zuul).
 - [S3] Missing docs: operations (backup, restore, upgrade, migration, data
   retention), a changelog, a sender-side spec for `/api/stream` (a schema or OpenAPI
   document; today the vocabulary lives in the `stream.py` docstring and the
