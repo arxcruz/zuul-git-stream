@@ -67,7 +67,7 @@ anyone who can reach the demo can then drive it.  See
 
 - **A bundle is announced.**  The build system sends one event to
   git-stream.  git-stream opens a merge request on the
-  `bundles` project that adds `bundle.yaml`, and Zuul runs 10 bundle
+  `bundles` project carrying the bundle as data, and Zuul runs 10 bundle
   tests.  They fail at random, like a flaky network, and
   `bundle-security` always fails because `ci-tool` has a bug.
 - **Failures are retried, then escalated.**  When Zuul reports a failure,

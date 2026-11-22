@@ -32,17 +32,10 @@ BUNDLE_JOBS = ['bundle-networking', 'bundle-storage', 'bundle-auth',
 NOT_A_VERDICT = {'SKIPPED', 'RETRY', None}
 DEPENDS_ON_RE = re.compile(r'^Depends-On:\s*(\S+)', re.M | re.I)
 
-TOOL_BROKEN = '''\
-# Read by the bundle tests.  Jobs listed here crash because of a known
-# ci-tool bug (parse_manifest() segfaults on signed bundles).
-broken_jobs:
-  - bundle-security
-'''
-TOOL_FIXED = '''\
-# Read by the bundle tests.  Jobs listed here crash because of a known
-# ci-tool bug.
-broken_jobs: []
-'''
+# What ci-tool announces, read by the bundle tests: jobs listed crash because
+# of a known ci-tool bug (parse_manifest() segfaults on signed bundles).
+TOOL_BROKEN = {'broken_jobs': ['bundle-security']}
+TOOL_FIXED = {'broken_jobs': []}
 
 sent = collections.deque(maxlen=30)
 sent_lock = threading.Lock()
@@ -189,10 +182,11 @@ def bundles():
 
 def ci_tool():
     """ci-tool's master (broken or not) and its fix merge request."""
-    tool = forge_api('%s/repository/files/tool.yaml/raw?ref=master'
-                     % TOOL_PROJECT)
-    broken = re.findall(r'^\s*-\s*(\S+)', tool.split('broken_jobs:', 1)[-1],
-                        re.M)
+    try:
+        broken = forge_api('%s/data' % TOOL_PROJECT)['data'].get(
+            'broken_jobs', [])
+    except urllib.error.HTTPError:
+        broken = []  # ci-tool has announced nothing yet
     fix = next((m for m in forge_api('%s/merge_requests?per_page=20'
                                      % TOOL_PROJECT)
                 if m.get('stream_key') == TOOL_FIX_KEY), None)
@@ -217,10 +211,9 @@ def bundle_message(req):
             'title': 'Bundle %s' % bundle_id,
             'description': 'Container bundle %s, announced by the build '
                            'system.' % bundle_id,
-            'files': {'bundle.yaml': 'id: %s\nflaky: %s\nimages:\n'
-                      '  - registry.local/api:%s\n'
-                      '  - registry.local/worker:%s\n' % (
-                          bundle_id, flaky, bundle_id, bundle_id)},
+            'data': {'id': bundle_id, 'flaky': flaky,
+                     'images': ['registry.local/api:%s' % bundle_id,
+                                'registry.local/worker:%s' % bundle_id]},
         }
     bundle_id = req['bundle_id']
     busy = [b for b in bundles()['bundles']
@@ -256,11 +249,10 @@ def bundle_message(req):
             'description': '%s\n\nDepends-On: %s' % (
                 mr['description'].rstrip(), fix['url'])}
         # The whole bundle is tested again; use the flakiness chosen now.
-        manifest = forge_api('%s/repository/files/bundle.yaml/raw?ref=%s' % (
-            BUNDLE_PROJECT, mr['sha']))
-        new = re.sub(r'^flaky:.*$', 'flaky: %s' % flaky, manifest, flags=re.M)
-        if new != manifest:
-            msg['files'] = {'bundle.yaml': new}
+        bundle = forge_api('%s/merge_requests/%s/data' % (
+            BUNDLE_PROJECT, mr['iid']))['data']
+        if bundle.get('flaky') != flaky:
+            msg['data'] = dict(bundle, flaky=flaky)
             msg['message'] = 'Set network flakiness to %s' % flaky
         return bundle_id, msg
     raise ValueError('unknown action %r' % action)
@@ -276,14 +268,14 @@ def tool_message(req):
             'description': 'parse_manifest() read past the end of the '
                            'signature block. bundle-security no longer '
                            'crashes.',
-            'files': {'tool.yaml': TOOL_FIXED}}
+            'data': TOOL_FIXED}
     if action == 'fix-merge':
         return TOOL_PROJECT, {'action': 'merge', 'project': TOOL_PROJECT,
                               'mr': TOOL_FIX_KEY, 'author': 'ci-tool-dev'}
     if action == 'break':
         return TOOL_PROJECT, {
             'action': 'push', 'project': TOOL_PROJECT,
-            'author': 'ci-tool-dev', 'files': {'tool.yaml': TOOL_BROKEN},
+            'author': 'ci-tool-dev', 'data': TOOL_BROKEN,
             'message': 'Rewrite parse_manifest() for speed'}
     raise ValueError('unknown action %r' % action)
 

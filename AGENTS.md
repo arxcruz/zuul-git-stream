@@ -167,6 +167,7 @@ tests/
   test_message_log.py     the message log and GET /api/stream/messages
   test_mr_data.py         data on MRs and pushes, and where jobs read it
   test_placeholder_projects.py  projects made on first use; adopted repos
+  test_demo_scripts.py    the demo's gitserver.py, seed.py, UI messages, dispatch.py
   test_files_refused.py   "files" is a 400, the seed setting is gone
   test_callbacks.py       callback_url: validation, outcomes, failures, migration
   test_config.py          config file / env / CLI precedence and errors
@@ -202,7 +203,9 @@ devenv/                   podman demo (Zuul + git-stream + demo UI)
   compose.yaml Containerfile git-stream.toml
   .env.example            secrets for the demo; deploy.sh makes the ignored .env
   etc_zuul/               zuul.conf.in (rendered to zuul.conf), tenant
-  repos/                  seed projects: zuul-config, bundles, ci-tool
+  repos/zuul-config/      Zuul's pipelines and jobs, served by gitserver.py
+                          as a real git repo (git-stream holds no config)
+  gitserver.py seed.py    the git HTTP server for repos/; the starting state
   demo-ui/                demo web page (stdlib Python + one HTML file)
 docs/                     the documentation listed above
 ```

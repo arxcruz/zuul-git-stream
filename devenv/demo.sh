@@ -166,15 +166,18 @@ walkthrough() {
     pause
 
     title "1. How Zuul is configured"
-    say "zuul.conf has an ordinary GitLab connection, pointing at git-stream:"
-    sed -n '/^\[connection gitlab\]/,/^$/p' etc_zuul/zuul.conf | show
+    say "zuul.conf has an ordinary GitLab connection, pointing at git-stream,"
+    say "and a plain git connection for Zuul's own config (pipelines, jobs):"
+    sed -n '/^\[connection gitlab\]/,/^$/p;/^\[connection config-git\]/,$p' \
+        etc_zuul/zuul.conf | grep -v '^#' | show
+    say "git-stream holds no job definitions: it only sends messages."
     say "and the pipeline triggers are ordinary GitLab triggers:"
     sed -n '/name: bundle-test$/,/recheck/p' repos/zuul-config/zuul.d/pipelines.yaml | show
     pause
 
     title "2. A new bundle is announced"
-    say "The build system sends one event.  git-stream opens a merge"
-    say "request that adds bundle.yaml, and Zuul runs the 10 bundle tests."
+    say "The build system sends one message with the bundle as data.  git-stream"
+    say "opens a merge request for it, and Zuul runs the 10 bundle tests."
     say "They fail at random like a flaky network, and ${B}security${R} always"
     say "fails: ci-tool, the tool the tests use, has a bug."
     say ""
@@ -207,8 +210,8 @@ walkthrough() {
     sleep 3
     say ""
     say "Our bundle's merge request gets a ${B}Depends-On:${R} line pointing at it."
-    say "Zuul tests the bundle with the fix speculatively merged into ci-tool,"
-    say "exactly like it does for Gerrit or GitHub changes."
+    say "Zuul tests the bundle with the fix ahead of it, like it does for"
+    say "Gerrit or GitHub changes; the jobs read the fix's data."
     send /api/bundle "{\"action\": \"with-fix\", \"bundle_id\": \"$bundle\", \"flaky\": 0}" \
         "Add Depends-On to the bundle" >/dev/null
     wait_settled "$bundle"
@@ -219,7 +222,8 @@ walkthrough() {
     pause
 
     title "5. Merge the fix"
-    say "Merging is a push to ci-tool's master; git-stream tells Zuul about it."
+    say "Merging makes the fix's data what ci-tool announces; git-stream tells"
+    say "Zuul about the push."
     send /api/ci-tool '{"action": "fix-merge"}' "Merge the ci-tool fix" >/dev/null
     sleep 3
     show_hooks 2
@@ -228,7 +232,7 @@ walkthrough() {
     pause
 
     title "6. Under the hood"
-    say "git-stream is a real git server; Zuul's merger clones it over HTTP:"
+    say "git-stream serves the little git Zuul needs; its merger clones over HTTP:"
     say "    git clone http://localhost:8090/bundles.git"
     say "    git fetch origin refs/merge-requests/1/head"
     say ""
