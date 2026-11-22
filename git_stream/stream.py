@@ -42,8 +42,9 @@ GET /api/v4/projects/<p>/merge_requests/<iid>/data (``?sha=`` for an older
 version).  Merging the MR, or pushing to the default branch, makes it the
 project's current data, at GET /api/v4/projects/<p>/data.
 
-open_mr and push create a project that does not exist yet (a placeholder: one
-commit with an empty tree); every other action on one is a 404.
+open_mr creates a project that does not exist yet (a placeholder: one commit
+with an empty tree), as does create_project without files; every other action
+on a missing project, push included, is a 404.
 
 In "files", a null value deletes the file.  Branch and tag names must be ones
 git accepts (400 otherwise); tagging an existing name is a 409.

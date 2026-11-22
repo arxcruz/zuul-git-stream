@@ -277,10 +277,8 @@ def test_bad_messages_are_rejected(forge):
     for msg, code in [({'action': 'explode', 'project': 'bundles'}, 400),
                       ({'action': 'comment', 'project': 'bundles',
                         'mr': 'nope', 'note': 'x'}, 404),
-                      # A push or an open_mr creates a missing project (see
-                      # tests/test_placeholder_projects.py); the rest don't.
-                      ({'action': 'tag', 'project': 'missing',
-                        'tag': 'v1'}, 404)]:
+                      ({'action': 'push', 'project': 'missing',
+                        'files': {'a': 'b'}}, 404)]:
         with pytest.raises(urllib.error.HTTPError) as e:
             forge.send(msg)
         assert e.value.code == code

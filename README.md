@@ -113,9 +113,10 @@ An event is a JSON object with an `action`.  Send it to `POST
 | `merge` | `project`, `mr`, `squash` | push and merged |
 
 - `files` maps paths to text; `null` deletes a file.
-- `open_mr` and `push` create a project that does not exist yet, as a
-  placeholder (one commit with an empty tree; `open_mr` on its
-  `target_branch`).  Every other action on a missing project is a 404.
+- `open_mr` creates a project that does not exist yet, as a placeholder
+  (one commit with an empty tree, on its `target_branch`).  So does
+  `create_project` without `files`.  Every other action on a missing project,
+  `push` included, is a 404.
 - `data` is a JSON object (at most 64 KiB and 8 levels deep) that travels
   with the version it was sent with, instead of a file.  Every change of it
   is a new commit, so Zuul sees a changed merge request; an unchanged `data`

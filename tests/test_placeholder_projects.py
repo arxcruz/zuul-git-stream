@@ -1,7 +1,8 @@
 """Projects made on first use are placeholders, and old repos are adopted.
 
-open_mr and push create a project that does not exist yet: one commit with
-an empty tree, nothing from the sender.  A repository already on disk (the
+open_mr creates a project that does not exist yet (a push does not: a typo
+would silently make a new project): one commit with an empty tree, nothing
+from the sender.  A repository already on disk (the
 state was lost, or an old instance left it) is adopted, not committed to.
 """
 
@@ -48,7 +49,8 @@ def test_open_mr_creates_the_project_on_the_requested_branch(forge):
     assert get(forge, '/api/v4/projects/p2')['default_branch'] == 'main'
 
 
-def test_push_creates_a_missing_project(forge):
+def test_a_push_to_a_project_made_by_create_project_works(forge):
+    forge.send({'action': 'create_project', 'project': 'fresh'})
     out = forge.send({'action': 'push', 'project': 'fresh',
                       'data': {'broken': True}})
     assert out['ref'] == 'refs/heads/master'
@@ -63,7 +65,8 @@ def test_a_create_project_with_no_files_is_a_placeholder(forge):
 
 
 def test_other_actions_on_a_missing_project_stay_a_404(forge):
-    for msg in ({'action': 'tag', 'project': 'ghost', 'tag': 'v1'},
+    for msg in ({'action': 'push', 'project': 'ghost', 'data': {'a': 1}},
+                {'action': 'tag', 'project': 'ghost', 'tag': 'v1'},
                 {'action': 'comment', 'project': 'ghost', 'mr': 1,
                  'note': 'x'},
                 {'action': 'approve', 'project': 'ghost', 'mr': 1},

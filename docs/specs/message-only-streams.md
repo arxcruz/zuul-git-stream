@@ -15,11 +15,12 @@ demo works the same way.
 1. `open_mr` with a `data` object and no `files`: the MR opens, Zuul sees an
    ordinary MR (sha, `diff_refs`, `refs/merge-requests/<iid>/head`), and the
    data is stored in SQLite with the MR.
-2. A project that does not exist yet is created on first use by `open_mr` or
-   `push` (and by `create_project`, which takes no files), as a placeholder
-   repository (one empty-content commit on the default branch).  Nothing in it
-   comes from a sender.  `tag`, `comment` and the other actions on a missing
-   project stay a 404.
+2. A project that does not exist yet is created on first use by `open_mr`, and
+   by `create_project` (which takes no files), as a placeholder repository
+   (one empty-content commit on the default branch; for `open_mr`, the
+   message's `target_branch`).  Nothing in it comes from a sender.  `push`,
+   `tag`, `comment` and the other actions on a missing project stay a 404, so
+   a mistyped name does not silently make a project.
 3. Jobs read an MR's `data` from git-stream's API, also for a Depends-On MR,
    not from a file in git: `GET /api/v4/projects/:id/merge_requests/:iid/data`,
    optionally `?sha=` for an older version.  Like the other API GETs it is

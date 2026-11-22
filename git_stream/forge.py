@@ -766,7 +766,7 @@ class Forge:
         if data is not None:
             self._data_store()
         with self.lock:
-            p = self.ensure_project(project, by)
+            p = self.project(project)
             branch = branch or p['default_branch']
             repo = self.repo(p)
             ref = 'refs/heads/' + branch
