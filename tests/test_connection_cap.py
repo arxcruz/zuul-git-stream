@@ -348,15 +348,14 @@ def test_an_outgoing_webhook_is_delivered_with_the_cap_full(capped, conns):
     try:
         # In-process, so that setting up takes no slot either.
         stream.apply(forge.forge, {'action': 'create_project',
-                                   'project': 'bundles',
-                                   'files': {'README.md': 'x\n'}},
+                                   'project': 'bundles'},
                      'git-stream')
         (held,) = hold(forge, conns)
         assert refused(forge, conns)           # the cap really is full
 
         stream.apply(forge.forge, {
             'action': 'open_mr', 'project': 'bundles', 'title': 'T',
-            'key': 'k', 'files': {'a.yaml': 'a: 1\n'}}, 'git-stream')
+            'key': 'k', 'data': {'a.yaml': 'a: 1\n'}}, 'git-stream')
         assert wait_for(lambda: received), 'the webhook was never delivered'
         assert received[0]['object_kind'] == 'merge_request'
 

@@ -1,8 +1,10 @@
 """Decide which bundle tests to run for a bundle merge request.
 
-  dispatch.py ZUUL_API FORGE_API PROJECT MR PIPELINE MANIFEST CHILD_JOBS_JSON
+  dispatch.py ZUUL_API FORGE_API PROJECT MR PATCHSET PIPELINE CHILD_JOBS_JSON
 
-MANIFEST is the merge request's bundle.yaml (id, flaky).  In the
+The bundle (id, flaky) is the data the merge request was announced with,
+read from git-stream for the version Zuul is testing (PATCHSET is its
+sha).  In the
 bundle-rerun pipeline, the newest "rerun" comment on the merge request
 says what to run:
 
@@ -20,10 +22,10 @@ Prints a JSON object with child_jobs, bundle_id, flaky and a report.
 import json
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
-import yaml
 
 # Results that don't say whether a job works for this bundle.
 NOT_A_VERDICT = {'SKIPPED', 'RETRY', None}
@@ -57,12 +59,23 @@ def rerun_comment(forge_api, project, mr):
     return None, []
 
 
+def bundle_data(forge_api, project, mr, patchset):
+    """The data of this version of the merge request ({} if it has none)."""
+    url = '%s/projects/%s/merge_requests/%s/data?sha=%s' % (
+        forge_api, urllib.parse.quote(project, safe=''), mr, patchset)
+    try:
+        return get(url)['data']
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        return {}
+
+
 def main():
-    (zuul_api, forge_api, project, mr, pipeline, manifest,
+    (zuul_api, forge_api, project, mr, patchset, pipeline,
      child_jobs) = sys.argv[1:]
     child_jobs = json.loads(child_jobs)
-    with open(manifest) as f:
-        bundle = yaml.safe_load(f) or {}
+    bundle = bundle_data(forge_api, project, mr, patchset)
     bundle_id = str(bundle.get('id', 'mr-%s' % mr))
     flaky = float(bundle.get('flaky', 0.3))
     report = ['bundle %s (%s!%s, pipeline %s)' % (bundle_id, project, mr,

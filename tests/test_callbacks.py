@@ -93,8 +93,7 @@ def receiver():
 def cb(make_forge):
     """A forge where "zuul" is Zuul's own name, with a "bundles" project."""
     running = make_forge(report_users=['zuul'])
-    running.send({'action': 'create_project', 'project': 'bundles',
-                  'files': {'README.md': 'bundles\n'}})
+    running.send({'action': 'create_project', 'project': 'bundles'})
     return running
 
 
@@ -108,7 +107,7 @@ def zuul():
 def open_bundle(forge, key='b-1', **kw):
     msg = {'action': 'open_mr', 'project': 'bundles', 'key': key,
            'title': 'Bundle %s' % key,
-           'files': {'bundle.yaml': 'id: %s\n' % key}}
+           'data': {'bundle.yaml': 'id: %s\n' % key}}
     msg.update(kw)
     return forge.send(msg)
 
@@ -222,7 +221,7 @@ def test_a_bad_callback_url_is_a_400_and_creates_nothing(cb, value):
     objects_before = repo.out('count-objects', '-v')
     code, message = rejected(cb, {
         'action': 'open_mr', 'project': 'bundles', 'key': 'b-1',
-        'title': 'T', 'files': {'a.yaml': 'a: 1\n'}, 'callback_url': value})
+        'title': 'T', 'data': {'a.yaml': 'a: 1\n'}, 'callback_url': value})
     assert code == 400 and 'callback_url' in message
     assert not cb.forge.project('bundles')['mrs']
     assert cb.forge.project('bundles')['next_iid'] == 1
@@ -241,7 +240,7 @@ def test_the_length_limit_is_2048_characters(cb):
         2048 - len(url)))['iid']
     code, message = rejected(cb, {
         'action': 'open_mr', 'project': 'bundles', 'key': 'long',
-        'title': 'T', 'files': {'a.yaml': 'a: 1\n'},
+        'title': 'T', 'data': {'a.yaml': 'a: 1\n'},
         'callback_url': url + 'a' * (2049 - len(url))})
     assert code == 400 and '2048' in message
 
@@ -382,7 +381,7 @@ def test_a_new_version_during_a_retry_keeps_the_escalated_sha(
         if not landed:
             landed.append(cb.send({
                 'action': 'update_mr', 'project': 'bundles', 'mr': 'b-1',
-                'files': {'bundle.yaml': 'id: newer\n'}}))
+                'data': {'bundle.yaml': 'id: newer\n'}}))
         return 200
     zuul.read_status = lookup
     policy = RetryPolicy(cb.forge, zuul.url, max_attempts=3, settle=0)
@@ -418,7 +417,7 @@ def test_a_new_sha_resets_what_has_fired(cb, receiver):
     zuul_calls(cb, mr['iid'], 'approve', mr['sha'])
     assert wait_for(lambda: r.attempts == 1)
     updated = cb.send({'action': 'update_mr', 'project': 'bundles',
-                       'mr': 'b-1', 'files': {'bundle.yaml': 'id: new\n'}})
+                       'mr': 'b-1', 'data': {'bundle.yaml': 'id: new\n'}})
     assert updated['sha'] != mr['sha']  # new commits drop the approval
     zuul_calls(cb, mr['iid'], 'approve', updated['sha'])
     assert wait_for(lambda: r.attempts == 2)
@@ -483,8 +482,7 @@ def test_an_old_state_db_gains_the_columns_and_loses_nothing(
         tmp_path, receiver):
     path = tmp_path / 'data'
     first = Running(path, report_users=['zuul'])
-    first.send({'action': 'create_project', 'project': 'bundles',
-                'files': {'README.md': 'x\n'}})
+    first.send({'action': 'create_project', 'project': 'bundles'})
     old = open_bundle(first, labels=['keep'], max_attempts=2)
     first.send({'action': 'comment', 'project': 'bundles', 'mr': 'b-1',
                 'note': 'hello'})
@@ -526,8 +524,7 @@ def test_a_migrated_db_keeps_callback_state_across_restarts(
         tmp_path, receiver):
     path = tmp_path / 'data'
     first = Running(path, report_users=['zuul'])
-    first.send({'action': 'create_project', 'project': 'bundles',
-                'files': {'README.md': 'x\n'}})
+    first.send({'action': 'create_project', 'project': 'bundles'})
     first.stop()
     db = sqlite3.connect(str(path / 'state.db'))
     db.execute('ALTER TABLE mr RENAME TO mr_current')

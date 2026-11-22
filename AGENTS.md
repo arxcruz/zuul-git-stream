@@ -19,7 +19,8 @@ Read this first, then the doc that matches your task:
 
 git-stream is a small **GitLab-compatible fake forge**.  Other systems
 (a build system announcing a container bundle, a release tool) send it
-JSON events over HTTP; it turns them into git commits and merge requests
+JSON messages over HTTP; it turns them into merge requests (backed by the
+minimal git commits Zuul needs) and records them in SQLite
 and sends Zuul the **webhooks a real GitLab would send**.  Zuul talks to
 it with its **stock GitLab driver**, so Zuul stays completely unmodified.
 
@@ -45,6 +46,10 @@ persistent failures are escalated (Jira later).
   described in [Workflow](#workflow).
 - **Don't touch `../zuul-kafka-driver`.**  It has uncommitted work the
   user wants left as it is.
+- **Messages, not files.**  git-stream never holds job definitions or Zuul
+  config, and no sender puts files in it: `files` in a message is a 400, a
+  sender sends `data` (decision 16).  Zuul's config repositories are real
+  repositories elsewhere.
 - **Stay GitLab-compatible.**  Any API/webhook change must keep Zuul's
   GitLab driver working; `tests/test_zuul_contract.py` must pass.
 - **Standard library only** for `git_stream/` (plus `git` >= 2.38 on the
@@ -148,7 +153,7 @@ A new `POST /api/stream` action is done when it has:
 
 ```
 git_stream/               the service (stdlib only)
-  __main__.py             CLI entry point (`git-stream`), seeding, wiring
+  __main__.py             CLI entry point (`git-stream`), wiring
   config.py               settings: defaults < TOML file < env < CLI
   forge.py                state: projects, MRs, notes, approvals; emits webhooks
   repos.py                bare git repos changed without a work tree
@@ -161,9 +166,14 @@ git_stream/               the service (stdlib only)
   metrics.py              SQLite log of builds, escalations and deliveries
 tests/
   conftest.py             `forge` fixture: a real server on a free port
-  test_forge.py           git over HTTP, keys/ids, merges, pages, seeding
+  test_forge.py           git over HTTP, keys/ids, merges, pages
   test_zuul_contract.py   Zuul's own GitlabAPIClient + webhook parser vs git-stream
   test_retry.py           retry/escalation with a fake Zuul builds API
+  test_message_log.py     the message log and GET /api/stream/messages
+  test_mr_data.py         data on MRs and pushes, and where jobs read it
+  test_placeholder_projects.py  projects made on first use; adopted repos
+  test_demo_scripts.py    the demo's gitserver.py, seed.py, UI messages, dispatch.py
+  test_files_refused.py   "files" is a 400, the seed setting is gone
   test_callbacks.py       callback_url: validation, outcomes, failures, migration
   test_config.py          config file / env / CLI precedence and errors
   test_metrics.py         the metrics store and its endpoint
@@ -198,7 +208,9 @@ devenv/                   podman demo (Zuul + git-stream + demo UI)
   compose.yaml Containerfile git-stream.toml
   .env.example            secrets for the demo; deploy.sh makes the ignored .env
   etc_zuul/               zuul.conf.in (rendered to zuul.conf), tenant
-  repos/                  seed projects: zuul-config, bundles, ci-tool
+  repos/zuul-config/      Zuul's pipelines and jobs, served by gitserver.py
+                          as a real git repo (git-stream holds no config)
+  gitserver.py seed.py    the git HTTP server for repos/; the starting state
   demo-ui/                demo web page (stdlib Python + one HTML file)
 docs/                     the documentation listed above
 ```
@@ -465,8 +477,7 @@ worked; `main` was free because the original checkout was detached.
   in a bare repo uses `--index-info` with mode 0 (`repos.py`).
 - Merges use `git merge-tree --write-tree` (git >= 2.38).
 - Don't run Python (e.g. `py_compile`) inside `devenv/repos/`: it leaves
-  `__pycache__`, which the seeder would have committed.  Seeding now
-  skips `__pycache__` and reads files as bytes.
+  `__pycache__`, which would be committed into the demo's config repository.
 - `podman compose up --build` did not rebuild the changed git-stream
   image; `deploy.sh` builds it explicitly and force-recreates the
   `git-stream` and `demo-ui` containers.
@@ -486,7 +497,12 @@ worked; `main` was free because the original checkout was detached.
 
 ## Current state
 
-Working and verified live in the demo: announce → test → results as MR
+Messages, not files (decision 16): senders send `data`, never `files`;
+git-stream holds placeholder projects and no job definitions (Zuul's config is
+a real git repository, served to the demo by `devenv/gitserver.py`).  The
+demo was reworked for that and **has not been run under podman yet** (the
+pieces were checked without Zuul; see docs/demo.md).  Before that rework it
+worked live as follows: announce → test → results as MR
 comments and approval → automatic retries → escalation shown on pages →
 test with an unmerged fix via `Depends-On` → approval.  The forge keeps
 its state in `<data>/state.db` and logs job activity in
@@ -496,9 +512,6 @@ view is authoritative while running).  Not done: see
 adapter, notifying the announcing system) and [docs/backlog.md](docs/backlog.md)
 (fixes and specs waiting for code).
 
-Known gap: the seeder is not fault-tolerant when starting with git repos
-on disk but no forge state (e.g. an old instance's `state.json`, which is
-no longer read unless SQLite is unavailable, or an empty `state.db`): it
-tries to re-create projects whose repos already exist, so `update-ref`
-crash-loops.  Reset the forge volume (`clean.sh`) or make the seeder skip
-existing repos before upgrading an instance this way.
+Fixed: `create_project` adopts a repository already on disk with its branch
+(it used to re-commit and crash-loop in `update-ref`), so starting with repos
+but no forge state works; it logs "Adopted the repository of project ...".

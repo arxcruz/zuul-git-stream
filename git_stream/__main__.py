@@ -16,7 +16,6 @@ survive a restart).  See config.py for the [server] and [metrics] options.
 
 import argparse
 import logging
-import os
 import sys
 
 from git_stream import config
@@ -25,23 +24,6 @@ from git_stream.metrics import Metrics
 from git_stream.retry import RetryPolicy
 from git_stream.server import serve
 from git_stream.webhooks import WebhookSender
-
-
-def seed(forge, root):
-    """Create a project from each directory in root that doesn't exist."""
-    for name in sorted(os.listdir(root)):
-        src = os.path.join(root, name)
-        if not os.path.isdir(src) or name in forge.state['projects']:
-            continue
-        files = {}
-        for dirpath, dirnames, filenames in os.walk(src):
-            dirnames[:] = [d for d in dirnames
-                           if d not in ('.git', '__pycache__')]
-            for f in filenames:
-                full = os.path.join(dirpath, f)
-                with open(full, 'rb') as fh:
-                    files[os.path.relpath(full, src)] = fh.read()
-        forge.create_project(name, files)
 
 
 def parse_args(argv=None):
@@ -54,8 +36,6 @@ def parse_args(argv=None):
     parser.add_argument('--base-url', help='URL Zuul uses to reach this '
                         'server')
     parser.add_argument('--data', help='directory for repositories and state')
-    parser.add_argument('--seed', help='create projects from the '
-                        'directories in this one')
     parser.add_argument('--webhook', action='append', metavar='URL',
                         help='send webhooks here (repeatable)')
     parser.add_argument('--webhook-token', help='sent as X-Gitlab-Token')
@@ -88,7 +68,7 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     overrides = {
         'server': {'listen': args.listen, 'base_url': args.base_url,
-                   'data': args.data, 'seed': args.seed,
+                   'data': args.data,
                    'debug': args.debug, 'insecure': args.insecure,
                    'max_body': args.max_body,
                    'read_timeout': args.read_timeout,
@@ -197,8 +177,6 @@ def main(argv=None):
     if policy:
         observers.append(policy.observe)
         policy.start()
-    if server_cfg['seed']:
-        seed(forge, server_cfg['seed'])
     sender.start()
 
     server = build_server(settings, forge, sender, metrics)

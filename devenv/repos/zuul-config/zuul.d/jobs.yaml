@@ -16,7 +16,7 @@
 
 - job:
     name: bundle-dispatch
-    description: Reads the bundle and the rerun comment, and selects the tests to run.
+    description: Reads the bundle's data and the rerun comment, and selects the tests to run.
     run: playbooks/bundle/dispatch.yaml
     vars:
       zuul_api: http://web:9000/api/tenant/example-tenant
@@ -30,12 +30,13 @@
       and always where ci-tool has a known bug.
     run: playbooks/bundle/test.yaml
     dependencies: [bundle-dispatch]
-    # When the bundle's merge request Depends-On a ci-tool merge request,
-    # Zuul checks out ci-tool with that merge request merged.
-    required-projects:
-      - ci-tool
+    # ci-tool's state is the data git-stream holds for it.  When the
+    # bundle's merge request Depends-On a ci-tool merge request, the job
+    # reads that merge request's data (the fix), not what ci-tool last
+    # announced.
     vars:
       steps: 4
+      forge_api: http://git-stream:8090/api/v4
 
 - job: {name: bundle-networking, parent: bundle-test-base, vars: {steps: 6}}
 - job: {name: bundle-storage, parent: bundle-test-base, vars: {steps: 5}}

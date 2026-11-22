@@ -54,10 +54,10 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_INITDB_SKIP_TZINFO: 1
 
-  # The fake GitLab, configured by git-stream.toml.  Creates bundles,
-  # ci-tool and zuul-config from ./repos on its first start, applies the
-  # events POSTed to /api/stream, sends GitLab webhooks to zuul-web, and
-  # retries failing jobs before escalating them.
+  # The fake GitLab, configured by git-stream.toml.  Applies the events
+  # POSTed to /api/stream (messages: it holds no job definitions), sends
+  # GitLab webhooks to zuul-web, and retries failing jobs before
+  # escalating them.
   git-stream:
     image: localhost/zuul-git-stream:latest
     build:
@@ -71,9 +71,35 @@ services:
       GIT_STREAM_WEBHOOK_TOKEN: ${WEBHOOK_TOKEN}
     volumes:
       - ./git-stream.toml:/etc/git-stream/git-stream.toml:z
-      - ./repos:/repos:z
       - forge:/srv/git-stream
     command: ["git-stream"]
+
+  # What stands in for the real repositories that hold Zuul's config in
+  # production: ./repos/zuul-config (pipelines, jobs, playbooks) as a git
+  # repository over HTTP.  Zuul reads it through its plain `git` driver.
+  # It is committed again on every start, so a change to ./repos reaches
+  # Zuul after ./deploy.sh.
+  gitserver:
+    image: localhost/zuul-git-stream:latest
+    restart: on-failure
+    volumes:
+      - ./gitserver.py:/usr/local/bin/gitserver.py:z
+      - ./repos:/srv/src:ro,z
+      - gitrepos:/srv/git
+    command: ["python3", "/usr/local/bin/gitserver.py", "/srv/src",
+              "/srv/git", "8091"]
+
+  # One-shot: announces the starting state (the placeholder projects Zuul's
+  # tenant names, and what ci-tool announced first) as messages.
+  seed:
+    image: localhost/zuul-git-stream:latest
+    restart: on-failure
+    depends_on: [git-stream]
+    environment:
+      FORGE: http://git-stream:8090
+    volumes:
+      - ./seed.py:/usr/local/bin/seed.py:z
+    command: ["python3", "/usr/local/bin/seed.py"]
 
   init:
     <<: *zuul
@@ -84,17 +110,33 @@ services:
       - certs:/var/certs:z
     command: ["init.sh"]
 
+  # The tenant names projects that must exist in git-stream before Zuul
+  # loads it, so the scheduler also waits until seed.py has announced
+  # ci-tool's state (the last thing it does).
   scheduler:
     <<: *zuul
-    depends_on: [zk, mysql, git-stream]
-    command: ["wait-for.sh", "zk:2281", "mysql:3306", "git-stream:8090", "--",
-              "zuul-scheduler", "-f"]
+    # Not `seed`: it exits when done, and podman will not start a container
+    # whose dependency is not running.  The command below waits for its result.
+    depends_on: [zk, mysql, git-stream, gitserver]
+    command:
+      - wait-for.sh
+      - zk:2281
+      - mysql:3306
+      - git-stream:8090
+      - gitserver:8091
+      - --
+      - sh
+      - -c
+      - until python3 -c "import urllib.request as u;
+        u.urlopen('http://git-stream:8090/api/v4/projects/ci-tool/data')";
+        do echo "Waiting for seed.py"; sleep 2; done;
+        exec zuul-scheduler -f
 
   merger:
     <<: *zuul
-    depends_on: [zk, git-stream]
-    command: ["wait-for.sh", "zk:2281", "git-stream:8090", "--",
-              "zuul-merger", "-f"]
+    depends_on: [zk, git-stream, gitserver]
+    command: ["wait-for.sh", "zk:2281", "git-stream:8090", "gitserver:8091",
+              "--", "zuul-merger", "-f"]
 
   executor:
     <<: *zuul
@@ -102,7 +144,7 @@ services:
     hostname: executor
     # Bubblewrap needs to create namespaces.
     privileged: true
-    depends_on: [zk, git-stream]
+    depends_on: [zk, git-stream, gitserver]
     volumes:
       - ./etc_zuul:/etc/zuul:z
       - ./wait-for.sh:/usr/local/bin/wait-for.sh:z
@@ -113,6 +155,7 @@ services:
       - wait-for.sh
       - zk:2281
       - git-stream:8090
+      - gitserver:8091
       - --
       - sh
       - -c
@@ -154,5 +197,6 @@ services:
 volumes:
   certs:
   forge:
+  gitrepos:
   logs:
   executor-state:

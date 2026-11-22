@@ -115,8 +115,7 @@ def rejected(forge, msg, token=None):
 @pytest.fixture
 def forge(tmp_path):
     running = Running(tmp_path / 'data')
-    running.send({'action': 'create_project', 'project': 'bundles',
-                  'files': {'README.md': 'bundles\n'}})
+    running.send({'action': 'create_project', 'project': 'bundles'})
     yield running
     running.stop()
 

@@ -1,9 +1,12 @@
 - tenant:
     name: example-tenant
     source:
-      gitlab:
+      # Zuul's pipelines and jobs: a real git repository, as in production.
+      config-git:
         config-projects:
           - zuul-config
+      # What git-stream announces: placeholder projects, no job definitions.
+      gitlab:
         untrusted-projects:
           - bundles
           - ci-tool

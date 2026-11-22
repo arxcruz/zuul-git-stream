@@ -1,26 +1,32 @@
 - hosts: localhost
   gather_facts: false
   vars:
-    ci_tool: "{{ zuul.projects.values() | selectattr('short_name', 'equalto', 'ci-tool') | first }}"
-    ci_tool_dir: "{{ zuul.executor.src_root }}/{{ ci_tool.canonical_name }}"
     # A ci-tool merge request ahead of this bundle (from Depends-On).
     ci_tool_mr: "{{ zuul['items'] | selectattr('project.short_name', 'equalto', 'ci-tool') | list }}"
+    # ci-tool is a placeholder in git-stream: its state is the data its
+    # announcements carry.  Read it from git-stream, from the Depends-On
+    # merge request if there is one, else what ci-tool last announced.
+    tool_path: "{{ ('merge_requests/' ~ ci_tool_mr[0].change ~ '/data?sha=' ~ ci_tool_mr[0].patchset) if ci_tool_mr else 'data' }}"
+    tool_url: "{{ forge_api ~ '/projects/ci-tool/' ~ tool_path }}"
   tasks:
-    - name: Which ci-tool are we using
-      command: git -C {{ ci_tool_dir }} log -1 "--format=%h %s"
-      register: tool_version
+    - name: Read ci-tool's state
+      uri:
+        url: "{{ tool_url }}"
+        return_content: true
+      register: tool_reply
 
     - name: Show it
+      vars:
+        version: "{{ tool_reply.json.sha[:8] }}"
       debug:
         msg: >-
-          bundle {{ bundle_id }} with ci-tool {{ tool_version.stdout }}
+          bundle {{ bundle_id }} with ci-tool {{ version }}
           {{ '(merge request !' ~ ci_tool_mr[0].change ~ ' speculatively merged)'
-             if ci_tool_mr else '(master)' }}
+             if ci_tool_mr else '(as announced)' }}
 
     - name: Load ci-tool's configuration
-      include_vars:
-        file: "{{ ci_tool_dir }}/tool.yaml"
-        name: tool
+      set_fact:
+        tool: "{{ tool_reply.json.data }}"
 
     - name: Test bundle {{ bundle_id }}
       debug:

@@ -35,10 +35,9 @@ def refused(forge, msg, token=None):
 
 
 def seed(forge, token=None):
-    forge.send({'action': 'create_project', 'project': 'bundles',
-                'files': {'README.md': 'x\n'}}, token=token)
+    forge.send({'action': 'create_project', 'project': 'bundles'}, token=token)
     forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'T',
-                'key': 'k', 'files': {'a.yaml': 'a: 1\n'}}, token=token)
+                'key': 'k', 'data': {'a.yaml': 'a: 1\n'}}, token=token)
 
 
 @pytest.fixture
@@ -80,10 +79,10 @@ ACTIONS_WITH_AN_AUTHOR = {
               'add': ['x']},
     'close': {'action': 'close', 'project': 'bundles', 'mr': 'k'},
     'push': {'action': 'push', 'project': 'bundles',
-             'files': {'b.yaml': 'b: 1\n'}},
+             'data': {'b.yaml': 'b: 1\n'}},
     'tag': {'action': 'tag', 'project': 'bundles', 'tag': 'v1'},
     'open_mr': {'action': 'open_mr', 'project': 'bundles', 'title': 'T2',
-                'key': 'k2', 'files': {'c.yaml': 'c: 1\n'}},
+                'key': 'k2', 'data': {'c.yaml': 'c: 1\n'}},
     'create_project': {'action': 'create_project', 'project': 'other'},
 }
 

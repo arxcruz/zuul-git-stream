@@ -26,8 +26,10 @@ podman build -q -t localhost/zuul-git-stream:latest -f Containerfile .. >/dev/nu
 say "Starting the containers..."
 compose up -d >/dev/null
 # "compose up" keeps running containers on their old image; restart the
-# two that use the image just built (it's quick).
-compose up -d --force-recreate --no-deps git-stream demo-ui >/dev/null
+# ones that use the image just built (it's quick).  gitserver commits
+# ./repos again (so a change to Zuul's config reaches Zuul), seed announces
+# the starting state if it is missing.
+compose up -d --force-recreate --no-deps git-stream demo-ui gitserver seed >/dev/null
 [ "$old_vars" = "$(cat etc_zuul/site-variables.yaml)" ] ||
     podman restart "$(container executor)" >/dev/null
 wait_ready

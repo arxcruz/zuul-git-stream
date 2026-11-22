@@ -33,8 +33,8 @@ Depends-On, speculative merging.  Nothing in Zuul changes.
 A bundle is an MR adding `bundle.yaml`, because MRs give everything for
 free: comments (results, rerun requests), approvals (Zuul's verdict),
 labels, Depends-On, and history per bundle in Zuul (`change` = iid).
-Bundle data lives in git because the GitLab driver passes no arbitrary
-payload to jobs.  These MRs live only in git-stream, not in the user's
+Bundle data lived in git because the GitLab driver passes no arbitrary
+payload to jobs (superseded by decision 16: it is now data in SQLite).  These MRs live only in git-stream, not in the user's
 real GitLab (the user doesn't want dummy patches there).
 
 ## 4. Event-driven instead of periodic
@@ -242,3 +242,44 @@ now checks the diff before the gate and refuses with "merge from a terminal
 outside Claude Code" (spec: `docs/specs/merge-protected-path-check.md`); which
 of the listed paths really break the merge, beyond `.claude/settings.json`,
 is still to be probed (backlog).
+
+## 16. Senders send messages, not files; data lives in SQLite (Nov 22)
+
+Spec: `docs/specs/message-only-streams.md`.  Decision 3 kept a bundle's data
+in git (`bundle.yaml`) because Zuul's GitLab driver passes jobs no payload.
+That tied every sender to git and put Zuul's own config in the same place
+as the announcements.  In production the config and job repositories are real
+repositories elsewhere, and git-stream should only trigger jobs.  So:
+
+- **Messages carry `data`, never `files`.**  `files` in any message is a 400
+  that says to send `data`.  `data` is a JSON object (64 KiB, 8 levels) kept
+  per version in SQLite (`mr_data`, `project_data` in `state.db`) and read by
+  jobs from `GET .../merge_requests/<iid>/data` and `GET .../projects/<p>/data`.
+  Both are anonymous like the other API GETs: no secrets in it.
+- **Git stays, as an internal detail.**  Zuul's stock driver still clones a
+  project and fetches `refs/merge-requests/<iid>/head`, so every project is
+  a placeholder (one commit, empty tree) and every MR version is a commit
+  with the target's tree.  Its message ends with `Stream-*` trailers (the
+  iid, a revision, a hash of the data) so two MRs never share a sha, and a
+  change of the data is a new commit, which Zuul sees as a changed MR.  The
+  alternative, serving git objects straight from SQLite, would be a hand
+  written git server in the standard library; rejected as too large and
+  risky for Zuul compatibility.
+- **Only `open_mr` creates a project** (and `create_project`).  `push` does
+  not: a mistyped name would silently make a project.  `create_project`
+  adopts a repository already on disk, which fixed the seeder crash-loop.
+- **A merge makes an MR's data the project's current data**, so a fix merged
+  in a placeholder project (the demo's ci-tool) changes what later jobs read.
+  A push of data to the default branch does too.
+- **Every stream message is logged** in an append-only `message` table in
+  `state.db` (logged as received before anything acts on it, then given its
+  outcome) and read at `GET /api/stream/messages` with a stream token,
+  because bodies can carry callback URLs.  It is never trimmed (backlog).
+- **The demo follows.**  `zuul-config` is a real git repository served by a
+  `gitserver` container and read through Zuul's plain `git` driver; `bundles`
+  and `ci-tool` are placeholders announced by `seed.py` and the demo UI.
+  `[server] seed` is gone.
+- **Costs.**  The Forge keeps an internal `files` argument (the placeholder
+  commit, tests that need file content); git-stream still needs `git`; the
+  demo no longer shows Zuul speculatively merging real files from `ci-tool`,
+  only the ordering and the data lookup of `Depends-On`.

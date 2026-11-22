@@ -72,7 +72,7 @@ def connector(forge):
 
 def open_mr(forge, **kw):
     msg = {'action': 'open_mr', 'project': 'bundles', 'title': 'Bundle b-1',
-           'key': 'b-1', 'files': {'bundle.yaml': 'id: b-1\n'}}
+           'key': 'b-1', 'data': {'bundle.yaml': 'id: b-1\n'}}
     msg.update(kw)
     return forge.send(msg)
 
@@ -95,8 +95,7 @@ def test_an_mr_with_a_callback_url_looks_the_same_to_zuul(make_forge):
     """callback_url is for the announcer: Zuul reads, reports, approves and
     parses webhooks exactly as for any other MR, and never sees the URL."""
     forge = make_forge(report_users=['zuul'])
-    forge.send({'action': 'create_project', 'project': 'bundles',
-                'files': {'README.md': 'bundles\n'}})
+    forge.send({'action': 'create_project', 'project': 'bundles'})
     client = gitlab.GitlabAPIClient(forge.url, API_TOKEN, 60, False)
     parse = parser_for(forge)
     url = 'http://127.0.0.1:9/hook?token=s3cret-callback-token'
@@ -127,9 +126,50 @@ def test_an_mr_with_a_callback_url_looks_the_same_to_zuul(make_forge):
     assert 's3cret' not in json.dumps(got)
 
 
+def test_a_message_only_mr_looks_the_same_to_zuul(make_forge):
+    """An MR made from data alone (no files) is an ordinary MR to Zuul: a
+    sha with diff_refs, a head ref a clone can fetch, webhooks that parse,
+    and a changed-MR event when its data changes."""
+    import subprocess
+    forge = make_forge(report_users=['zuul'])
+    forge.send({'action': 'create_project', 'project': 'bundles'})
+    client = gitlab.GitlabAPIClient(forge.url, API_TOKEN, 60, False)
+    parse = parser_for(forge)
+    plain = open_mr(forge, key='plain')
+    mr = forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'T',
+                     'key': 'd-1', 'data': {'id': 'd-1', 'flaky': 0.3}})
+
+    got, got_plain = (client.get_mr('bundles', m['iid']) for m in (mr, plain))
+    assert set(got) == set(got_plain)
+    assert got['diff_refs']['head_sha'] == got['sha'] == mr['sha']
+    assert got['merge_status'] == 'can_be_merged'
+    assert 'flaky' not in json.dumps(got)  # the data is not Zuul's business
+
+    ref = 'refs/merge-requests/%d/head' % mr['iid']
+    repo = forge.forge.repo(forge.forge.project('bundles'))
+    assert repo.resolve(ref) == mr['sha']
+    clone = subprocess.run(
+        ['git', 'ls-remote', '%s/bundles.git' % forge.url, ref],
+        capture_output=True, text=True, check=True).stdout
+    assert clone.split()[0] == mr['sha']
+
+    updated = forge.send({'action': 'update_mr', 'project': 'bundles',
+                          'mr': 'd-1', 'data': {'id': 'd-1', 'flaky': 0.0}})
+    assert client.get_mr('bundles', mr['iid'])['sha'] == updated['sha']
+    events = [parse(h) for h in forge.hooks_of('merge_request')
+              if h['object_attributes']['iid'] == mr['iid']]
+    assert [e.action for e in events] == ['opened', 'changed']
+    assert events[-1].patch_number == updated['sha']
+    for hook in forge.hooks:
+        assert 'flaky' not in json.dumps(hook)
+
+    client.comment_mr('bundles', mr['iid'], 'Build succeeded.')
+    assert client.approve_mr('bundles', mr['iid'], updated['sha'])['approved']
+
+
 def test_branches_as_read_by_zuul(forge, client):
     forge.send({'action': 'push', 'project': 'bundles', 'branch': 'stable',
-                'files': {'x': '1'}})
+                'data': {'x': '1'}})
     assert client.get_project_branches('bundles', False) == [
         'master', 'stable']
     assert client.get_project_branches('bundles', True) == ['master']
@@ -181,7 +221,7 @@ def test_webhooks_as_parsed_by_zuul(forge, connector):
     assert event.branch == 'master'
 
     # Same key again: a new commit on the same MR.
-    again = open_mr(forge, files={'bundle.yaml': 'id: b-1\nv: 2\n'})
+    again = open_mr(forge, data={'bundle.yaml': 'id: b-1\nv: 2\n'})
     assert again['iid'] == mr['iid'] and again['sha'] != mr['sha']
     event = connector(forge.hooks_of('merge_request')[-1])
     assert event.action == 'changed'
@@ -217,9 +257,11 @@ def test_webhooks_as_parsed_by_zuul(forge, connector):
 
 
 def test_push_and_tag_webhooks(forge, connector):
-    res = forge.send({'action': 'push', 'project': 'bundles',
-                      'files': {'a.txt': 'a', 'README.md': None},
-                      'message': 'Add a, drop README'})
+    # The push hook lists the files a commit added and removed; a message
+    # carries none, so make one with the forge's own API.
+    forge.forge.push('bundles', {'README.md': 'x\n'}, 'Add README', 'me')
+    res = forge.forge.push('bundles', {'a.txt': 'a', 'README.md': None},
+                           'Add a, drop README', 'me')
     hook = forge.hooks_of('push')[-1]
     event = connector(hook)
     assert (event.ref, event.oldrev, event.newrev) == (
@@ -263,12 +305,11 @@ def test_zuul_retries_a_503_from_a_full_connection_cap(make_forge,
     # Set up in-process: over HTTP, each setup request's slot is released
     # just after its reply, which could race the next request into a 503.
     stream.apply(forge.forge, {'action': 'create_project',
-                               'project': 'bundles',
-                               'files': {'README.md': 'bundles\n'}},
+                               'project': 'bundles'},
                  'git-stream')
     mr = stream.apply(forge.forge, {
         'action': 'open_mr', 'project': 'bundles', 'title': 'Bundle b-1',
-        'key': 'b-1', 'files': {'bundle.yaml': 'id: b-1\n'}}, 'git-stream')
+        'key': 'b-1', 'data': {'bundle.yaml': 'id: b-1\n'}}, 'git-stream')
     refusals = []
     real = forge.server._refuse
 

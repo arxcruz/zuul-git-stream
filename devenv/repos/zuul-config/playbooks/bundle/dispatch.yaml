@@ -1,13 +1,11 @@
 - hosts: localhost
   gather_facts: false
-  vars:
-    bundle_dir: "{{ zuul.executor.src_root }}/{{ zuul.project.canonical_name }}"
   tasks:
-    - name: Read the bundle and pick the tests to run
+    - name: Read the bundle (the data it was announced with) and pick the tests to run
       command: >-
         /usr/local/bin/python3 {{ playbook_dir }}/dispatch.py
         {{ zuul_api }} {{ forge_api }} {{ zuul.project.name }}
-        {{ zuul.change }} {{ zuul.pipeline }} {{ bundle_dir }}/bundle.yaml
+        {{ zuul.change }} {{ zuul.patchset }} {{ zuul.pipeline }}
         {{ zuul.child_jobs | to_json | quote }}
       register: dispatch
 

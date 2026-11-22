@@ -67,7 +67,7 @@ anyone who can reach the demo can then drive it.  See
 
 - **A bundle is announced.**  The build system sends one event to
   git-stream.  git-stream opens a merge request on the
-  `bundles` project that adds `bundle.yaml`, and Zuul runs 10 bundle
+  `bundles` project carrying the bundle as data, and Zuul runs 10 bundle
   tests.  They fail at random, like a flaky network, and
   `bundle-security` always fails because `ci-tool` has a bug.
 - **Failures are retried, then escalated.**  When Zuul reports a failure,
@@ -101,18 +101,32 @@ An event is a JSON object with an `action`.  Send it to `POST
 
 | action | fields | GitLab event Zuul gets |
 |--------|--------|------------------------|
-| `create_project` | `project`, `files` | none |
-| `push` | `project`, `files`, `branch`, `message` | push |
+| `create_project` | `project`, `branch`, `description` | none (a placeholder: one commit, empty tree) |
+| `push` | `project`, `data`, `branch`, `message` | push |
 | `tag` | `project`, `tag`, `rev` | tag push |
-| `open_mr` | `project`, `title`, `files`, `description`, `target_branch`, `key`, `labels`, `max_attempts`, `callback_url` | merge request opened (Zuul sees no `callback_url`) |
-| `update_mr` | `project`, `mr`, `files`, `title`, `description` | merge request changed |
+| `open_mr` | `project`, `title`, `description`, `target_branch`, `key`, `labels`, `max_attempts`, `callback_url`, `data` | merge request opened (Zuul sees no `callback_url`) |
+| `update_mr` | `project`, `mr`, `title`, `description`, `data` | merge request changed |
 | `comment` | `project`, `mr`, `note` | comment |
 | `label` | `project`, `mr`, `add`, `remove` | merge request labeled |
 | `approve`, `unapprove` | `project`, `mr` | approved, unapproved |
 | `close`, `reopen` | `project`, `mr` | closed, reopened |
 | `merge` | `project`, `mr`, `squash` | push and merged |
 
-- `files` maps paths to text; `null` deletes a file.
+- Senders send messages, never files: `files` in any message is a 400 that
+  says to send `data`.  git-stream holds no job definitions or Zuul config;
+  those live in real repositories on other Zuul connections.
+- `open_mr` creates a project that does not exist yet, as a placeholder
+  (one commit with an empty tree, on its `target_branch`).  So does
+  `create_project`.  Every other action on a missing project,
+  `push` included, is a 404.
+- `data` is a JSON object (at most 64 KiB and 8 levels deep) that travels
+  with the version it was sent with, instead of a file.  Every change of it
+  is a new commit, so Zuul sees a changed merge request; an unchanged `data`
+  changes nothing.  Jobs read it back, anonymously, from
+  `GET /api/v4/projects/<project>/merge_requests/<iid>/data` (add `?sha=`
+  for an older version).  Merging the merge request, or a `push` of `data`
+  to the default branch, makes it the project's current data at
+  `GET /api/v4/projects/<project>/data`.  Needs `sqlite3`.
 - Senders don't have to keep track of merge request numbers: a merge
   request can be given a `key` when it's opened (e.g. a bundle ID) and
   addressed by it later (`"mr": "b-0042"`).  Opening a merge request with a key that is still
@@ -137,7 +151,7 @@ An event is a JSON object with an `action`.  Send it to `POST
 ```sh
 curl -X POST localhost:8090/api/stream -d '{
   "action": "open_mr", "project": "bundles", "key": "b-0042",
-  "title": "Bundle b-0042", "files": {"bundle.yaml": "id: b-0042\n"}}'
+  "title": "Bundle b-0042", "data": {"id": "b-0042"}}'
 curl -X POST localhost:8090/api/stream -d '{
   "action": "comment", "project": "bundles", "mr": "b-0042", "note": "recheck"}'
 ```
@@ -169,7 +183,7 @@ version, then:
 
 A bundle can set its own limit with `"max_attempts"` in `open_mr`
 (`0` turns retries and escalation off for it).  A new version of the
-merge request (new files) starts the count over.  The re-runs rely on a
+merge request (new `data`) starts the count over.  The re-runs rely on a
 pipeline that turns a `rerun ...` comment into the right jobs; see
 `bundle-rerun` and `bundle-dispatch` in `devenv/repos/zuul-config`.
 
@@ -216,6 +230,12 @@ Callbacks of one merge request can arrive out of order; use `time`.
 - **Webhooks** to every configured URL, in order, retried until accepted,
   with the `X-Gitlab-Token` header.  Recent deliveries are at
   `GET /api/stream/deliveries`.
+- **Message log** in `state.db`: every message sent to `POST /api/stream` is
+  recorded with its sender, action, project, key, time, body (up to 16 KiB)
+  and outcome (`applied`, `duplicate`, `refused`, `rejected` or `error`).
+  `GET /api/stream/messages` (with a stream token) lists it newest first;
+  filter with `project`, `key`, `action`, `outcome`, `since` and `until`,
+  page with `limit` (at most 200) and `before` (the `next` of the last page).
 - **Web pages** at `/`, `/escalations`, `/metrics` and
   `/<project>/merge_requests/<iid>`.
 - **Metrics** in a SQLite database (opt-in, `[metrics] path`): one row per
@@ -242,7 +262,6 @@ complete example, and `git_stream/config.py` describes every option:
 listen = "0.0.0.0:8090"
 base_url = "http://git-stream:8090"   # how Zuul reaches git-stream
 data = "/srv/git-stream"              # repositories and state
-seed = "/repos"                       # optional: create projects from these dirs
 insecure = false                      # true: demos only, see docs/security.md
 max_body = 10485760                   # bytes; a larger request body is a 413
 read_timeout = 30                     # seconds of silence before a 408

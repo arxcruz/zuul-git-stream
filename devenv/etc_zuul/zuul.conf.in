@@ -49,3 +49,11 @@ server=git-stream
 baseurl=http://git-stream:8090
 api_token=@ZUUL_API_TOKEN@
 webhook_token=@WEBHOOK_TOKEN@
+
+# Zuul's own config (pipelines, jobs) lives in a plain git repository, as it
+# would in production; the gitserver container serves ./repos/zuul-config.
+# Zuul checks it for new commits every poll_delay seconds.
+[connection config-git]
+driver=git
+baseurl=http://gitserver:8091
+poll_delay=10

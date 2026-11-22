@@ -70,8 +70,8 @@ implement it first, and treat a failing test there as possibly a test bug.
 - [S3] Sync the docs with each fix, as `AGENTS.md` requires: README, the
   `git_stream/config.py` docstring, `devenv/git-stream.toml`,
   `docs/security.md`, `docs/zuul-contract.md`.
-- [S3] `main()` itself is still untested glue (ordering: seeding happens before the
-  webhook sender starts; the retry policy observes the forge's webhooks).
+- [S3] `main()` itself is still untested glue (the retry policy observes the
+  forge's webhooks).
   Everything it builds goes through the `build_*` functions in
   `git_stream/__main__.py`.
 - [S3] `GIT_STREAM_GIT_TOKENS` is read by `config.load` but there is no `git`
@@ -80,8 +80,6 @@ implement it first, and treat a failing test there as possibly a test bug.
 - [S3] Stale statements: the comment in `git_stream/repos.py` (`Repo.create`) says
   git-stream "enforces the git token"; it does not.  Re-read `docs/security.md`
   ("Done", "Planned") against the code once the items above land.
-- [S3] Starting with an invalid project directory in the seed directory ends in a
-  traceback; it should be a plain message that says what to do.
 
 ## 3. Audit findings with no test or spec yet
 
@@ -175,9 +173,6 @@ section 1.
   done, by decision: an allowlist of callback URLs (any stream sender can make
   git-stream POST to any http(s) host, internal ones included), an auth header
   on callbacks, retries, durable delivery, and per-failure events.
-- [S2] The seeder is not fault-tolerant against pre-existing state (the "Known
-  gap" in `AGENTS.md`): an empty `state.db` makes it recreate projects whose
-  repositories exist, and `update-ref` crash-loops.
 - [S1 (unverified)] `retry.results` assumes Zuul returns builds newest first and that `change`
   and `patchset` mean the MR id and sha; only the parameter and field names
   are checked against Zuul's code, not the ordering.  Escalation URLs get no
@@ -196,7 +191,26 @@ section 1.
   token/user maps; `server.py` imports the private `stream._labels`; status
   and message conventions differ (`'404 Project Not Found'` against
   `'invalid project name'`, double approval is 401).
-- [S3] The demo UI (`devenv/demo-ui/app.py`, 357 lines) has no tests.
+- [S2] Every stream message does its SQLite commits (the log's two, and the
+  data tables') while holding the forge lock, which also serves Zuul's REST
+  calls and the webhook emission; each commit is an fsync.  A burst of
+  messages could delay Zuul's API.  Unmeasured: time it under load, then move
+  the log to its own connection or batch the commits
+  (`record_message`/`finish_message` in `git_stream/forge.py`).
+- [S3] The message log (`message` table in `state.db`, `git_stream/forge.py`)
+  is never trimmed and has no UI or read token of its own; it grows with every
+  message.  Needs a retention setting (age or count), a page, and probably a
+  separate read token (`docs/specs/message-only-streams.md`, out of scope).
+- [S3] Out of scope of `docs/specs/message-only-streams.md`: a message-log
+  page or UI; a read token separate from the stream token (the data endpoints
+  are anonymous, so `data` must hold no secrets); migrating an existing
+  forge whose MRs carry `bundle.yaml` as files (they keep working, but a job
+  now reads `data`, so an old MR has none).
+- [S3] The demo's Zuul side has only been checked piece by piece (the
+  scripts, the YAML), not under podman: see the verification steps in
+  `docs/specs/message-only-streams.md` ("Done means") once run.
+- [S3] The demo UI (`devenv/demo-ui/app.py`) has few tests
+  (`tests/test_demo_scripts.py` covers its messages, not the page or Zuul).
 - [S3] Missing docs: operations (backup, restore, upgrade, migration, data
   retention), a changelog, a sender-side spec for `/api/stream` (a schema or OpenAPI
   document; today the vocabulary lives in the `stream.py` docstring and the

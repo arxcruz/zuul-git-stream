@@ -159,7 +159,7 @@ select { font: inherit; background: var(--code); color: var(--ink);
       <div class="scenario">
         <div class="title">Announce a new bundle</div>
         <div class="desc">The build system sends one event to git-stream, which turns it into a merge
-          request that adds <code>bundle.yaml</code>, and Zuul runs all 10 bundle tests. Some fail at random,
+          request for the bundle (its data), and Zuul runs all 10 bundle tests. Some fail at random,
           like a flaky network, and <b>security</b> always fails while ci-tool has its bug.</div>
         <button id="bundle-new">Send</button>
       </div>

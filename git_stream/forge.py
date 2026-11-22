@@ -14,6 +14,7 @@ That keeps the hot path lock-free on the database and survives restarts.
 
 import copy
 import datetime
+import hashlib
 import hmac
 import json
 import logging
@@ -31,6 +32,10 @@ log = logging.getLogger('git_stream.forge')
 
 # How many processed message ids to remember for de-duplication.
 SEEN_IDS = 1000
+
+# The message log keeps a message's body up to this many bytes of JSON; a
+# larger one is logged as {"truncated": true, "size": N}.
+MESSAGE_BODY_MAX = 16384
 
 # The in-memory shape a store must present.  A project is a plain dict
 # (name, id, default_branch, description, created_at, next_iid, keys, mrs);
@@ -94,6 +99,22 @@ class SqliteStore:
       created_at TEXT);
     CREATE TABLE IF NOT EXISTS seen (id INTEGER PRIMARY KEY, message_id TEXT);
     CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER);
+    -- The message log is append-only: save() never touches it.
+    CREATE TABLE IF NOT EXISTS message (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT, sender TEXT,
+      action TEXT, project TEXT, key TEXT, message_id TEXT, outcome TEXT,
+      status INTEGER, detail TEXT, body TEXT);
+    CREATE INDEX IF NOT EXISTS message_project ON message(project, id);
+    -- The data a sender attached to each version (sha) of an MR, and to
+    -- each push or merge into a project.  Append-only, like the log.
+    CREATE TABLE IF NOT EXISTS mr_data (
+      mr_id INTEGER, sha TEXT, data TEXT, created_at TEXT,
+      PRIMARY KEY (mr_id, sha));
+    CREATE TABLE IF NOT EXISTS project_data (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, branch TEXT,
+      sha TEXT, data TEXT, created_at TEXT);
+    CREATE INDEX IF NOT EXISTS project_data_project
+      ON project_data(project_id, id);
     '''
 
     def __init__(self, path):
@@ -115,6 +136,99 @@ class SqliteStore:
 
     def close(self):
         self.conn.close()
+
+    # -- the message log (append-only, outside the state mirror) ------------
+
+    def add_message(self, row):
+        """Insert a received message; return its row id."""
+        cur = self.conn.execute(
+            'INSERT INTO message(time, sender, action, project, key,'
+            ' message_id, outcome, body) VALUES (?,?,?,?,?,?,?,?)',
+            (row['time'], row['sender'], row['action'], row['project'],
+             row['key'], row['message_id'], 'received', row['body']))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def finish_message(self, row_id, outcome, status, detail):
+        self.conn.execute(
+            'UPDATE message SET outcome=?, status=?, detail=? WHERE id=?',
+            (outcome, status, detail, row_id))
+        self.conn.commit()
+
+    # -- MR and project data (append-only, outside the state mirror) --------
+
+    def add_mr_data(self, mr_id, sha, data):
+        self.conn.execute(
+            'INSERT OR REPLACE INTO mr_data VALUES (?,?,?,?)',
+            (mr_id, sha, json.dumps(data, sort_keys=True), now()))
+        self.conn.commit()
+
+    def get_mr_data(self, mr_id, sha):
+        row = self.conn.execute(
+            'SELECT data FROM mr_data WHERE mr_id=? AND sha=?',
+            (mr_id, sha)).fetchone()
+        return None if row is None else json.loads(row['data'])
+
+    def count_mr_data(self, mr_id):
+        return self.conn.execute(
+            'SELECT COUNT(*) FROM mr_data WHERE mr_id=?',
+            (mr_id,)).fetchone()[0]
+
+    def add_project_data(self, project_id, branch, sha, data):
+        self.conn.execute(
+            'INSERT INTO project_data(project_id, branch, sha, data,'
+            ' created_at) VALUES (?,?,?,?,?)',
+            (project_id, branch, sha, json.dumps(data, sort_keys=True),
+             now()))
+        self.conn.commit()
+
+    def get_project_data(self, project_id, branch=None, sha=None):
+        """(sha, data) of the newest row for a branch, or for a sha."""
+        if sha is not None:
+            row = self.conn.execute(
+                'SELECT sha, data FROM project_data WHERE project_id=?'
+                ' AND sha=? ORDER BY id DESC LIMIT 1',
+                (project_id, sha)).fetchone()
+        else:
+            row = self.conn.execute(
+                'SELECT sha, data FROM project_data WHERE project_id=?'
+                ' AND branch=? ORDER BY id DESC LIMIT 1',
+                (project_id, branch)).fetchone()
+        return None if row is None else (row['sha'], json.loads(row['data']))
+
+    def count_project_data(self, project_id):
+        return self.conn.execute(
+            'SELECT COUNT(*) FROM project_data WHERE project_id=?',
+            (project_id,)).fetchone()[0]
+
+    def messages(self, filters, limit, before):
+        """Logged messages, newest first, matching the equality filters
+        (project, key, action, outcome) and the time window (since, until),
+        with ids below before."""
+        where, args = [], []
+        for name in ('project', 'key', 'action', 'outcome'):
+            if filters.get(name) is not None:
+                where.append('%s = ?' % name)
+                args.append(filters[name])
+        if filters.get('since') is not None:
+            where.append('time >= ?')
+            args.append(filters['since'])
+        if filters.get('until') is not None:
+            where.append('time < ?')
+            args.append(filters['until'])
+        if before is not None:
+            where.append('id < ?')
+            args.append(before)
+        rows = self.conn.execute(
+            'SELECT * FROM message%s ORDER BY id DESC LIMIT ?' % (
+                ' WHERE ' + ' AND '.join(where) if where else ''),
+            args + [limit]).fetchall()
+        found = []
+        for r in rows:
+            m = dict(r)
+            m['body'] = json.loads(m['body']) if m['body'] else None
+            found.append(m)
+        return found
 
     def load(self):
         """Build the in-memory view: {projects, keys, mrs, seen, counters}."""
@@ -229,6 +343,19 @@ def _check_branch(branch):
     if not valid_branch(branch):
         raise ForgeError('invalid branch name %r; use a plain name such '
                          'as "master" or "release/1.0"' % (branch,))
+
+
+def _data_message(message, kind, number, data):
+    """A commit message that is unique to this version of the data.
+
+    A message-only commit changes no file, so without this two MRs opened in
+    the same second would get the same sha.  The trailers carry what makes
+    this commit different: whose it is, which revision, a hash of the data.
+    """
+    digest = hashlib.sha256(json.dumps(
+        data, sort_keys=True).encode('utf8')).hexdigest()[:16]
+    return '%s\n\n%s\nStream-Revision: %d\nStream-Data: %s\n' % (
+        message, kind, number, digest)
 
 
 CALLBACK_URL_MAX = 2048
@@ -579,7 +706,12 @@ class Forge:
 
     def create_project(self, name, files=None, branch='master',
                        description='', by='git-stream'):
-        """Create a project with an initial commit; no-op if it exists."""
+        """Create a project with an initial commit; no-op if it exists.
+
+        Without files the project is a placeholder: one commit with an empty
+        tree.  A repository already on disk with that branch (state lost, or
+        an old instance's) is adopted as it is instead of being committed to.
+        """
         name = name.strip('/')
         if not name or name.endswith('.git') or '..' in name:
             raise ForgeError('invalid project name %r' % name)
@@ -593,23 +725,46 @@ class Forge:
                  'next_iid': 1}
             self.state['next_project_id'] += 1
             repo = Repo.create(self.repo(p).path, branch)
-            files = files or {'README.md': '# %s\n' % name}
-            sha = repo.commit(None, files, 'Initial commit', by,
-                              '%s@git-stream.local' % by)
-            repo.update_ref('refs/heads/' + branch, sha, ZERO_SHA)
+            if repo.resolve('refs/heads/' + branch) is None:
+                sha = repo.commit(None, files or {}, 'Initial commit', by,
+                                  '%s@git-stream.local' % by)
+                repo.update_ref('refs/heads/' + branch, sha, ZERO_SHA)
+            else:
+                log.warning('Adopted the repository of project %s, which '
+                            'was already on disk', name)
             self.state['projects'][name] = p
             self.save()
             log.info('Created project %s', name)
             return p
 
-    def push(self, project, files, message, by, branch=None, start=None):
-        """Commit files to a branch (created from start if missing).
+    def ensure_project(self, name, by, branch=None):
+        """The project called name, created as a placeholder if it is new.
+
+        Only a name is created from: any other reference (a numeric id, a
+        non-string) that finds nothing is the usual 404.
+        """
+        with self.lock:
+            try:
+                return self.project(name)
+            except ForgeError as e:
+                if e.status != 404 or not isinstance(name, str):
+                    raise
+            return self.create_project(name, branch=branch or 'master',
+                                       by=by)
+
+    def push(self, project, files, message, by, branch=None, start=None,
+             data=None):
+        """Commit files and/or data to a branch (created from start if
+        missing).  Data is kept with the commit and, for the default branch,
+        is the project's current data.
 
         start is a revision (a sha, a tag, a branch), not a branch name, so
         it is not checked as one.
         """
         if branch:
             _check_branch(branch)
+        if data is not None:
+            self._data_store()
         with self.lock:
             p = self.project(project)
             branch = branch or p['default_branch']
@@ -620,9 +775,16 @@ class Forge:
             if parent is None:
                 raise ForgeError('no branch %s to start from' % (
                     start or p['default_branch']), 404)
-            sha = repo.commit(parent, files, message or 'Update files', by,
+            message = message or 'Update files'
+            if data is not None:
+                message = _data_message(
+                    message, 'Stream-Push: %s' % p['name'],
+                    self.store.count_project_data(p['id']) + 1, data)
+            sha = repo.commit(parent, files, message, by,
                               '%s@git-stream.local' % by)
             repo.update_ref(ref, sha, before or ZERO_SHA)
+            if data is not None:
+                self.store.add_project_data(p['id'], branch, sha, data)
             self._emit_push(p, ref, before or ZERO_SHA, sha, by)
             return {'project': p['name'], 'ref': ref, 'before':
                     before or ZERO_SHA, 'after': sha}
@@ -646,28 +808,35 @@ class Forge:
 
     def open_mr(self, project, title, files, by, description='',
                 target_branch=None, message=None, key=None, labels=(),
-                max_attempts=None, callback_url=None):
+                max_attempts=None, callback_url=None, data=None):
         if target_branch:
             _check_branch(target_branch)
         if callback_url is not None:
             check_callback_url(callback_url)
+        if data is not None:
+            self._data_store()
         with self.lock:
-            p = self.project(project)
+            p = self.ensure_project(project, by, target_branch)
             if key is not None and str(key) in p['keys']:
                 mr = p['mrs'][str(p['keys'][str(key)])]
                 if mr['state'] == 'opened':
                     # Same key again (e.g. a redelivered message): update.
                     return self.update_mr(project, mr['iid'], by, files=files,
                                           title=title, message=message,
-                                          description=description)
+                                          description=description,
+                                          data=data)
             target_branch = target_branch or p['default_branch']
             repo = self.repo(p)
             start = repo.resolve('refs/heads/' + target_branch)
             if start is None:
                 raise ForgeError('no branch %s' % target_branch, 404)
-            sha = repo.commit(start, files, message or title, by,
-                              '%s@git-stream.local' % by)
             iid = p['next_iid']
+            text = message or title
+            if data is not None:
+                text = _data_message(text, 'Stream-MR: %s!%d' % (
+                    p['name'], iid), 1, data)
+            sha = repo.commit(start, files, text, by,
+                              '%s@git-stream.local' % by)
             p['next_iid'] += 1
             repo.update_ref('refs/merge-requests/%d/head' % iid, sha)
             ts = now()
@@ -686,6 +855,8 @@ class Forge:
                 'callback': None if callback_url is None else [],
             }
             self.state['next_mr_id'] += 1
+            if data is not None:
+                self.store.add_mr_data(mr['id'], sha, data)
             p['mrs'][str(iid)] = mr
             if key is not None:
                 p['keys'][str(key)] = iid
@@ -696,21 +867,37 @@ class Forge:
 
     def update_mr(self, project, ref, by, files=None, title=None,
                   description=None, message=None, add_labels=(),
-                  remove_labels=(), state_event=None):
-        """Change an MR.  New files become a new commit on top of it."""
+                  remove_labels=(), state_event=None, data=None):
+        """Change an MR.  New files, or data that differs from the MR's
+        current data, become a new commit on top of it; the data of a
+        version without new data is carried over to the new one."""
+        if data is not None:
+            self._data_store()
         with self.lock:
             p = self.project(project)
             mr = self.mr(p, ref)
             repo = self.repo(p)
             changes, oldrev = {}, None
-            if files:
+            before = None
+            if hasattr(self.store, 'get_mr_data'):
+                before = self.store.get_mr_data(mr['id'], mr['sha'])
+            new_data = data is not None and data != before
+            if files or new_data:
                 if mr['state'] != 'opened':
                     raise ForgeError('merge request is %s' % mr['state'], 405)
                 oldrev = mr['sha']
-                sha = repo.commit(oldrev, files, message or 'Update', by,
+                text = message or 'Update'
+                if new_data:
+                    text = _data_message(
+                        text, 'Stream-MR: %s!%d' % (p['name'], mr['iid']),
+                        self.store.count_mr_data(mr['id']) + 1, data)
+                sha = repo.commit(oldrev, files, text, by,
                                   '%s@git-stream.local' % by)
                 repo.update_ref('refs/merge-requests/%s/head' % mr['iid'],
                                 sha, oldrev)
+                kept = data if new_data else before
+                if kept is not None:
+                    self.store.add_mr_data(mr['id'], sha, kept)
                 mr['sha'] = sha
                 # Like a rebase-free push: approvals are reset.
                 mr['approved_by'] = []
@@ -847,6 +1034,11 @@ class Forge:
                         mr['title'], p['name'], mr['iid']),
                     by, email, extra_parents=[mr['sha']], tree=tree)
             repo.update_ref(target_ref, sha, before)
+            if hasattr(self.store, 'get_mr_data'):
+                kept = self.store.get_mr_data(mr['id'], mr['sha'])
+                if kept is not None:
+                    self.store.add_project_data(
+                        p['id'], mr['target_branch'], sha, kept)
             mr['state'] = 'merged'
             mr['merged_at'] = mr['updated_at'] = now()
             mr['merge_commit_sha'] = sha
@@ -866,6 +1058,95 @@ class Forge:
                             mr['escalation'], state=mr['state'],
                             current=mr.get('escalated_sha') == mr['sha']))
             return sorted(found, key=lambda e: -e['time'])
+
+    # -- data attached to MRs and pushes ----------------------------------------
+
+    def _data_store(self):
+        if not hasattr(self.store, 'add_mr_data'):
+            raise ForgeError('"data" needs the sqlite3 module, which this '
+                             'host does not have', 501)
+        return self.store
+
+    def mr_data(self, project, ref, sha=None):
+        """{project, mr, sha, data} of an MR's current version, or of the
+        version with this sha.  404 when that version has no data."""
+        store = self._data_store()
+        with self.lock:
+            p = self.project(project)
+            mr = self.mr(p, ref)
+            sha = sha or mr['sha']
+            data = store.get_mr_data(mr['id'], sha)
+            if data is None:
+                raise ForgeError('no data for version %s of merge request '
+                                 '%s!%d' % (sha, p['name'], mr['iid']), 404)
+            return {'project': p['name'], 'mr': mr['iid'], 'sha': sha,
+                    'data': data}
+
+    def project_data(self, project, sha=None):
+        """{project, branch, sha, data}: what was last pushed or merged to
+        the default branch, or the data of the commit with this sha."""
+        store = self._data_store()
+        with self.lock:
+            p = self.project(project)
+            found = store.get_project_data(
+                p['id'], p['default_branch'], sha)
+            if found is None:
+                raise ForgeError('no data for project %s' % p['name'], 404)
+            return {'project': p['name'], 'branch': p['default_branch'],
+                    'sha': found[0], 'data': found[1]}
+
+    # -- the message log ------------------------------------------------------
+
+    def record_message(self, sender, msg):
+        """Log a message as received, before anything acts on it.
+
+        Returns a handle for finish_message (None when there is no log: the
+        JSON fallback has none).  A failing log never fails the stream.
+        """
+        if not hasattr(self.store, 'add_message'):
+            return None
+        body = msg if isinstance(msg, dict) else {'message': msg}
+        try:
+            text = json.dumps(body, default=str)
+        except (RecursionError, ValueError):  # too deeply nested to log
+            text = json.dumps({'truncated': True, 'size': None})
+        if len(text) > MESSAGE_BODY_MAX:
+            text = json.dumps({'truncated': True, 'size': len(text)})
+
+        def text_of(name):
+            value = body.get(name)
+            return value if isinstance(value, str) else (
+                None if value is None else str(value)[:200])
+        key = body.get('key') if body.get('key') is not None else body.get('mr')
+        row = {'time': now(), 'sender': sender, 'action': text_of('action'),
+               'project': text_of('project'),
+               'key': None if key is None else str(key)[:200],
+               'message_id': text_of('id'), 'body': text}
+        try:
+            with self.lock:
+                return self.store.add_message(row)
+        except sqlite3.Error:
+            log.exception('Could not log a stream message')
+            return None
+
+    def finish_message(self, handle, outcome, status, detail=None):
+        if handle is None:
+            return
+        try:
+            with self.lock:
+                self.store.finish_message(handle, outcome, status,
+                                          None if detail is None
+                                          else detail[:500])
+        except sqlite3.Error:
+            log.exception('Could not log the outcome of a stream message')
+
+    def messages(self, filters, limit=100, before=None):
+        """The logged messages, newest first (see SqliteStore.messages)."""
+        if not hasattr(self.store, 'messages'):
+            raise ForgeError('the message log needs the sqlite3 module, which '
+                             'this host does not have', 501)
+        with self.lock:
+            return self.store.messages(filters, limit, before)
 
     def seen(self, message_id):
         """Remember a message id; True if it was processed before."""

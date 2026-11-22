@@ -39,7 +39,7 @@ def raw_status(forge, request):
 @pytest.fixture
 def mr(forge):
     forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'T',
-                'key': 'k', 'files': {'a.yaml': 'a: 1\n'}})
+                'key': 'k', 'data': {'a.yaml': 'a: 1\n'}})
     return '/api/v4/projects/bundles/merge_requests/1'
 
 

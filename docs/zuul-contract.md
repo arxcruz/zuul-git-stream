@@ -78,11 +78,24 @@ webhooks carry no `callback` at all: `_hook_mr_attrs` removes it.
 `test_an_mr_with_a_callback_url_looks_the_same_to_zuul` drives Zuul's client
 and webhook parser against such an MR.
 
+An MR made from `data` alone (no files) is an ordinary MR to Zuul: its commit
+has the target's tree and a message with `Stream-*` trailers that make it
+unique, so the sha, `diff_refs` and `refs/merge-requests/<iid>/head` behave as
+usual, and a change of the data is a new commit and an `update` webhook with
+`oldrev`.  The data itself is in no payload Zuul reads; jobs fetch it from
+`GET .../merge_requests/<iid>/data`.
+`test_a_message_only_mr_looks_the_same_to_zuul` drives Zuul's client and
+parser against one.
+
 ## Git
 
 - Zuul clones `<cloneurl>/<project>.git` over HTTP and fetches
   `refs/merge-requests/<iid>/head` to test an MR.  Those refs must be
-  advertised (git-stream serves every ref).
+  advertised (git-stream serves every ref).  git-stream's projects are
+  placeholders: an empty tree, and MR commits with that tree, so a job gets
+  its data from the API, not from the checkout (decision 16).  Zuul's config
+  and job repositories are not here: in production they are real repositories
+  on other connections, and in the demo a plain `git` connection.
 - Zuul loads config from **every branch** of untrusted projects; don't
   create stray branches (git-stream never creates MR source branches).
 

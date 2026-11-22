@@ -35,6 +35,11 @@ To Zuul, git-stream is a GitLab server: configured with a normal
   `sqlite3` module is unavailable).  The in-memory view is authoritative
   while the process runs; the database is a persistence mirror written on
   every change.  Repositories are bare repos in `<data>/repos/<name>.git`.
+- Besides the mirrored state, `state.db` has three append-only tables the
+  mirror's `save()` never touches: `message` (the log of every stream
+  message and its outcome), `mr_data` (the `data` of each version of an MR)
+  and `project_data` (what was pushed or merged to a project).  They need
+  `sqlite3`; the JSON fallback has none, and `data` and the log answer 501.
 - State layout (the in-memory view the stores share):
   ```
   projects: {name: {id, name, default_branch, description, created_at,
@@ -62,6 +67,12 @@ To Zuul, git-stream is a GitLab server: configured with a normal
   config from them.  The MR head lives only at
   `refs/merge-requests/<iid>/head`, like GitLab.
 
+### Placeholder projects
+git-stream holds no files from senders.  `open_mr` creates a missing project
+as one commit with an empty tree; an MR commit has that same tree, with a
+unique message (`Stream-*` trailers).  What an MR "contains" is its `data`.
+See decision 16.
+
 ### `repos.py`: git without a work tree
 Commits are built with a temporary index (`read-tree`, `update-index`,
 `write-tree`, `commit-tree`) and refs are moved with compare-and-swap
@@ -69,7 +80,9 @@ Commits are built with a temporary index (`read-tree`, `update-index`,
 (added/modified/removed).
 
 ### `stream.py`: the event vocabulary
-`apply(forge, msg)` validates one event and calls the forge.  Events
+`apply(forge, msg, sender)` logs the message (`forge.record_message`),
+validates it, calls the forge and records the outcome.  `files` is refused;
+`data` is checked (size, depth).  Events
 address MRs by iid or by a sender-chosen `key`; `open_mr` with a key
 that's still open updates that MR (idempotent announcements).  An event
 `id` is remembered so resending is a no-op.
@@ -88,7 +101,7 @@ Routes:
   the one place that decides who a message acts as (`stream._author`): the
   token's user, or with `author` set, only that same user; on an open stream
   any author except `report_users`.  A refusal is a 403, per message in a
-  batch.  Also served: `/api/stream/deliveries`, `/api/stream/escalations`, `/api/stream/metrics` (when metrics is on).
+  batch.  Also served: `/api/stream/deliveries`, `/api/stream/escalations`, `/api/stream/messages` (the message log; needs a stream token) and `/api/stream/metrics` (when metrics is on).  The GitLab API has two non-GitLab reads for jobs: `.../merge_requests/<iid>/data` and `.../projects/<p>/data`.
 - HTML: `/`, `/escalations`, `/metrics`, `/<project>`, `/<project>/merge_requests/<iid>`.
 - `/health`.
 
@@ -134,7 +147,7 @@ Unknown sections/options and bad types are errors.
 
 ### `__main__.py`: wiring
 Parses CLI, loads config, builds `WebhookSender`, `Forge` (with an emit
-fan-out list), optional `RetryPolicy`, seeds projects from `seed`, and
+fan-out list), optional `RetryPolicy`, and
 serves forever.
 
 ## Flows

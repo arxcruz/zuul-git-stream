@@ -107,8 +107,7 @@ def test_a_non_ascii_stream_token_header_is_401(make_forge, header):
 @pytest.mark.parametrize('header', ['PRIVATE-TOKEN', 'Authorization'])
 def test_a_non_ascii_api_token_header_is_401(make_forge, header):
     forge = make_forge(users=API, stream_tokens=STREAM, insecure=False)
-    forge.send({'action': 'create_project', 'project': 'bundles',
-                'files': {'README.md': 'x\n'}}, token='tok-a')
+    forge.send({'action': 'create_project', 'project': 'bundles'}, token='tok-a')
     value = 'Bearer tök' if header == 'Authorization' else 'tök'
     path = '/api/v4/projects/bundles/merge_requests/1/notes'  # needs auth
     assert request_status(forge, path, {header: value}) == 401
