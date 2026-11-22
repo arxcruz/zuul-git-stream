@@ -214,6 +214,10 @@ section 1.
   are anonymous, so `data` must hold no secrets); migrating an existing
   forge whose MRs carry `bundle.yaml` as files (they keep working, but a job
   now reads `data`, so an old MR has none).
+- [S3] Out of scope of `docs/specs/metrics-view.md`: exporting the data (CSV,
+  images), alerting on it, a page per build, and a read token for the
+  counting endpoints (the stream token covers only the messages).  Runs
+  recorded before the metrics fix keep NULL times and are only in totals.
 - [S3] The demo's Zuul side has only been checked piece by piece (the
   scripts, the YAML), not under podman: see the verification steps in
   `docs/specs/message-only-streams.md` ("Done means") once run.

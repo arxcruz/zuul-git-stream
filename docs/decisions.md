@@ -283,3 +283,26 @@ repositories elsewhere, and git-stream should only trigger jobs.  So:
   commit, tests that need file content); git-stream still needs `git`; the
   demo no longer shows Zuul speculatively merging real files from `ci-tool`,
   only the ordering and the data lookup of `Depends-On`.
+
+## 17. The metrics view counts in git-stream and draws in the demo UI (Nov 23)
+
+Spec: `docs/specs/metrics-view.md`.  Choices:
+
+- **Counting endpoints, not raw rows.**  `GET /api/stream/metrics/<kind>`
+  returns counts grouped by one field and bucketed by hour or day, so a page
+  never downloads the log and the checks (fixed groups, bounded values,
+  at most 500 buckets) are in one place (`aggregate.py`).
+- **The data was wrong first.**  A live demo had 43 run rows for 17 builds
+  (every Zuul report re-logged the whole version) and no times at all (Zuul
+  sends ISO strings and a duration; only numbers were read), so `?days=` matched
+  nothing.  A run is now stored once per build uuid and the times are read;
+  old databases are de-duplicated when opened and keep NULL times.
+- **Chart.js from a CDN, pinned.**  Chosen over hand-written SVG for the
+  polish the page is for; the cost is that the page needs internet and the
+  Subresource Integrity hash is still to add (the hash needs a download; a
+  pending test records it).  Without the library the page shows tables.
+- **The page's logic is plain functions under node.**  `metrics.js` keeps the
+  filters-in-the-URL, query building and error text free of the browser so
+  tests can run them; those tests skip when `node` is missing.
+- **Messages are charted too**, through the same shape of endpoint but behind
+  the stream token, and never with a body.

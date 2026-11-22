@@ -137,7 +137,22 @@ delivery.  The retry policy writes `run` and `escalation` rows; the
 webhook sender writes `delivery` rows.  Read-mostly: `GET
 `/api/stream/metrics` and the `/metrics` page aggregate the `run` table.
 It is a log of what git-stream saw, not a source of truth; it is additive
-and does not replace the forge state in `state.db`.
+and does not replace the forge state in `state.db`.  A run is stored once per
+Zuul build uuid (a unique index; an old database is de-duplicated when it
+opens) with the start, end and duration Zuul reports, its pipeline and the
+merge request's key.
+
+### `aggregate.py`: counting for charts
+`GET /api/stream/metrics/{runs,escalations,deliveries,messages}` count what
+was recorded, grouped by one field and bucketed by the hour or the day.
+`aggregate.parse` checks a query (unknown parameter, group, bucket, time or
+value is a 400 that lists what is valid; at most 500 buckets); `aggregate`
+builds the SQL from fixed per-table specs in `metrics.py` (runs, deliveries)
+and `forge.py` (the message log), with the query's values only as bound
+parameters; escalations are counted in Python.  Answers are bounded (200
+groups, 2000 rows) and say `truncated`.  The demo UI's `/metrics` page
+(`devenv/demo-ui/metrics.html`, `metrics.js`) draws them through its
+`/api/metrics/<kind>` proxy.
 
 ### `config.py`: settings
 `SCHEMA` maps section → option → (default, type, env var).  `load()`
