@@ -16,6 +16,9 @@ import urllib.error
 import urllib.request
 
 FORGE = os.environ.get('FORGE', 'http://git-stream:8090')
+# Sent to git-stream's message charts (they need a stream token).  The demo's
+# stream is open, so it is normally empty.
+STREAM_TOKEN = os.environ.get('STREAM_TOKEN', '')
 ZUUL_API = os.environ.get(
     'ZUUL_API', 'http://web:9000/api/tenant/example-tenant')
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -66,6 +69,32 @@ def get(url):
     with urllib.request.urlopen(url, timeout=5) as r:
         body = r.read()
     return json.loads(body) if body[:1] in (b'[', b'{') else body.decode()
+
+
+METRIC_KINDS = ('runs', 'escalations', 'deliveries', 'messages')
+MAX_QUERY = 2000
+
+
+def forge_metrics(kind, query):
+    """git-stream's answer to a metrics query: (status, parsed JSON).
+
+    Its errors pass through with their status and message, so the page can
+    say what is wrong; only git-stream being unreachable is a 502.
+    """
+    headers = {'X-Stream-Token': STREAM_TOKEN} if STREAM_TOKEN else {}
+    url = '%s/api/stream/metrics/%s' % (FORGE, kind) + (
+        '?' + query if query else '')
+    try:
+        with urllib.request.urlopen(urllib.request.Request(
+                url, headers=headers), timeout=10) as r:
+            return r.status, json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.load(e)
+        except ValueError:
+            return e.code, {'message': 'git-stream answered %d' % e.code}
+    except (urllib.error.URLError, OSError):
+        return 502, {'error': 'git-stream is not answering'}
 
 
 def forge_api(path):
@@ -292,16 +321,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _file(self, name, content_type):
+        with open(os.path.join(HERE, name), 'rb') as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         try:
-            if self.path in ('/', '/index.html'):
-                with open(os.path.join(HERE, 'index.html'), 'rb') as f:
-                    body = f.read()
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+            path, _, query = self.path.partition('?')
+            if path in ('/', '/index.html'):
+                self._file('index.html', 'text/html; charset=utf-8')
+            elif path == '/metrics':
+                self._file('metrics.html', 'text/html; charset=utf-8')
+            elif path == '/metrics.js':
+                self._file('metrics.js', 'text/javascript; charset=utf-8')
+            elif path.startswith('/api/metrics/'):
+                kind = path[len('/api/metrics/'):]
+                if kind not in METRIC_KINDS:
+                    self._json({'error': 'not found'}, 404)
+                elif len(query) > MAX_QUERY:
+                    self._json({'message': 'the query is too long'}, 414)
+                else:
+                    self._json(*reversed(forge_metrics(kind, query)))
             elif self.path == '/api/sent':
                 with sent_lock:
                     self._json(list(sent))
@@ -315,7 +360,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(ci_tool())
             elif self.path == '/api/escalations':
                 self._json(get(FORGE + '/api/stream/escalations'))
-            elif self.path.startswith('/api/metrics'):
+            elif path == '/api/metrics':
                 query = ('?' + self.path.split('?', 1)[1]) if '?' in self.path else ''
                 self._json(get(FORGE + '/api/stream/metrics' + query))
             elif self.path == '/api/builds':

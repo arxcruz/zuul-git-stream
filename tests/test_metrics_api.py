@@ -9,74 +9,16 @@ known offset from it, so each expected count below can be worked out by hand.
 """
 
 import json
-import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 
 import pytest
 
-from conftest import FAST_POLL
-from git_stream.metrics import Metrics
-from git_stream.server import serve
 
 T0 = 1700006400  # 2023-11-15T00:00:00Z: a day (and hour) boundary
 HOUR, DAY = 3600, 86400
 TOKENS = {'build-system': 'tok-b', 'release-manager': 'tok-r'}
-
-
-# -- the server under test ---------------------------------------------------
-
-class Api:
-    def __init__(self, forge, metrics):
-        self.forge, self.metrics = forge, metrics
-        self.server = serve(forge.forge, None, '127.0.0.1', 0,
-                            metrics=metrics)
-        self.url = 'http://127.0.0.1:%d' % self.server.server_address[1]
-        threading.Thread(target=self.server.serve_forever, kwargs=FAST_POLL,
-                         daemon=True).start()
-
-    def get(self, endpoint, token=None, **query):
-        """(status, json) of GET /api/stream/metrics/<endpoint>?query.
-
-        (Not `kind`: deliveries have a filter of that name.)"""
-        url = '%s/api/stream/metrics/%s' % (self.url, endpoint)
-        if query:
-            url += '?' + urllib.parse.urlencode(query)
-        request = urllib.request.Request(
-            url, headers={'X-Stream-Token': token} if token else {})
-        try:
-            with urllib.request.urlopen(request) as r:
-                return r.status, json.load(r)
-        except urllib.error.HTTPError as e:
-            return e.code, json.load(e)
-
-    def rows(self, endpoint, **query):
-        status, body = self.get(endpoint, **query)
-        assert status == 200, body
-        return body['rows']
-
-    def stop(self):
-        self.server.shutdown()
-        self.server.server_close()
-
-
-@pytest.fixture
-def make_api(make_forge, tmp_path):
-    made = []
-
-    def make(metrics=True, **forge_settings):
-        forge = make_forge(**forge_settings)
-        store = Metrics(str(tmp_path / ('m%d.db' % len(made)))) \
-            if metrics else None
-        api = Api(forge, store)
-        made.append((api, store))
-        return api
-    yield make
-    for api, store in made:
-        api.stop()
-        if store:
-            store.close()
 
 
 def build(job, result, pipeline, end, duration, uuid):

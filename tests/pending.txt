@@ -27,3 +27,6 @@ tests/test_retry.py::test_the_outcome_of_each_escalation_notice_is_recorded
 tests/test_webhooks.py::test_no_token_means_no_token_header
 tests/test_webhooks.py::test_a_dead_url_does_not_delay_a_healthy_one
 tests/test_webhooks.py::test_stopping_ends_every_delivery_thread_even_mid_retry
+
+# group: metrics view SRI
+tests/test_metrics_view.py::test_the_chart_library_has_an_integrity_hash

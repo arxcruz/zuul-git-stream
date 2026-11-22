@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zuul git-stream Metrics</title>
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --ink: #1d2330; --muted: #677087;
+  --line: #e2e5ec; --accent: #3b5bdb; --accent-ink: #ffffff;
+  --ok: #2f9e44; --bad: #e03131; --run: #1c7ed6; --skip: #868e96;
+  --warn: #e8590c; --warn-bg: #fff1e6; --code: #f1f3f7;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11141b; --panel: #1a1e27; --ink: #e8ebf2; --muted: #98a1b6;
+    --line: #2a303d; --accent: #5c7cfa; --accent-ink: #ffffff;
+    --ok: #51cf66; --bad: #ff6b6b; --run: #4dabf7; --skip: #adb5bd;
+    --warn: #ffa94d; --warn-bg: #3a2a1a; --code: #12151c;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--accent); }
+header { padding: 20px 24px 8px; display: flex; flex-wrap: wrap;
+  align-items: baseline; gap: 8px 20px; }
+header h1 { margin: 0; font-size: 24px; }
+header .sub { color: var(--muted); }
+header nav { margin-left: auto; display: flex; gap: 14px; }
+.filters { margin: 8px 24px 0; padding: 14px 16px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; display: flex;
+  flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; }
+.filters label { display: flex; flex-direction: column; gap: 3px;
+  font-size: 12px; color: var(--muted); }
+.filters select, .filters input { min-width: 120px; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+  color: var(--ink); font: inherit; font-size: 14px; }
+.filters .group { display: flex; flex-wrap: wrap; gap: 10px 16px;
+  align-items: flex-end; padding-right: 16px;
+  border-right: 1px solid var(--line); }
+.filters .group:last-of-type { border-right: 0; }
+.filters .group > span { font-size: 11px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); width: 100%; }
+button { padding: 7px 14px; border: 1px solid var(--accent); border-radius: 6px;
+  background: var(--accent); color: var(--accent-ink); font: inherit;
+  cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); }
+.totals { display: grid; gap: 12px; padding: 16px 24px 0;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.total { background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 16px; }
+.total .value { font-size: 28px; font-weight: 650; }
+.total .label { color: var(--muted); font-size: 13px; }
+section { padding: 8px 24px 8px; }
+section h2 { margin: 22px 0 2px; font-size: 18px; }
+.meta { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+.notice { background: var(--warn-bg); color: var(--warn);
+  border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px;
+  margin: 6px 0; }
+.notice[hidden], [hidden] { display: none !important; }
+.banner { margin: 12px 24px 0; }
+.grid { display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.chart { position: relative; height: 240px; }
+.card.small .chart { height: 240px; }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+.table-wrap { overflow-x: auto; }
+table.fallback { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.fallback th, table.fallback td { padding: 4px 8px;
+  border-bottom: 1px solid var(--line); text-align: left; }
+table.fallback caption { text-align: left; font-weight: 600;
+  padding-bottom: 4px; }
+footer { padding: 18px 24px 30px; color: var(--muted); font-size: 13px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+<script src="/metrics.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>Metrics</h1>
+  <span class="sub">what git-stream recorded: builds, escalations, webhooks, messages</span>
+  <nav>
+    <a href="/">Demo</a>
+    <a id="nav-raw" href="/api/metrics">Summary JSON</a>
+  </nav>
+</header>
+
+<div class="notice banner" id="lib-missing" hidden>
+  The chart library (Chart.js, from cdnjs.cloudflare.com) could not be
+  loaded, probably because this computer is offline.  The numbers are shown
+  as tables instead.
+</div>
+<div class="notice banner" id="notice" hidden></div>
+
+<form class="filters" id="filters" onsubmit="return false">
+  <div class="group"><span>When</span>
+    <label>Range
+      <select id="f-range">
+        <option value="1h">last hour</option><option value="6h">last 6 hours</option>
+        <option value="24h" selected>last 24 hours</option>
+        <option value="7d">last 7 days</option><option value="30d">last 30 days</option>
+        <option value="all">all time</option><option value="custom">custom&hellip;</option>
+      </select></label>
+    <span id="custom-range" class="group" hidden>
+      <label>From (UTC) <input id="f-since" placeholder="2026-11-22 or 2026-11-22T09:30"></label>
+      <label>To (UTC) <input id="f-until" placeholder="2026-11-23"></label>
+    </span>
+  </div>
+  <div class="group"><span>Builds</span>
+    <label>Project <select id="f-project"><option value="">any</option></select></label>
+    <label>Job <select id="f-job"><option value="">any</option></select></label>
+    <label>Result <select id="f-result"><option value="">any</option></select></label>
+    <label>Pipeline <select id="f-pipeline"><option value="">any</option></select></label>
+    <label>Bundle <select id="f-bundle"><option value="">any</option></select></label>
+  </div>
+  <div class="group"><span>Webhooks</span>
+    <label>Kind <select id="f-kind"><option value="">any</option></select></label>
+    <label>Action <select id="f-daction"><option value="">any</option></select></label>
+    <label>Delivered <select id="f-ok"><option value="">any</option>
+      <option value="1">yes</option><option value="0">no</option></select></label>
+  </div>
+  <div class="group"><span>Messages</span>
+    <label>Action <select id="f-maction"><option value="">any</option></select></label>
+    <label>Sender <select id="f-sender"><option value="">any</option></select></label>
+    <label>Outcome <select id="f-outcome"><option value="">any</option></select></label>
+  </div>
+  <button type="button" class="ghost" id="f-reset">Reset</button>
+</form>
+
+<div class="totals" id="totals"></div>
+
+  <section id="sec-jobs">
+    <h2>Jobs</h2>
+    <p class="meta">What Zuul's jobs did, as git-stream saw it (one row per build).</p>
+    <div class="notice" id="notice-jobs" hidden></div>
+    <div class="grid">
+      <div class="card">
+        <h3>Results per job</h3>
+        <div class="chart"><canvas id="chart-jobs-results"></canvas></div>
+        <div class="empty" id="empty-jobs-results" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-jobs-results"></div>
+      </div>
+      <div class="card">
+        <h3>Failure rate per job (%)</h3>
+        <div class="chart"><canvas id="chart-jobs-failrate"></canvas></div>
+        <div class="empty" id="empty-jobs-failrate" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-jobs-failrate"></div>
+      </div>
+      <div class="card">
+        <h3>Runs over time, by result</h3>
+        <div class="chart"><canvas id="chart-runs-over-time"></canvas></div>
+        <div class="empty" id="empty-runs-over-time" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-runs-over-time"></div>
+      </div>
+      <div class="card">
+        <h3>Duration per job (seconds)</h3>
+        <div class="chart"><canvas id="chart-jobs-duration"></canvas></div>
+        <div class="empty" id="empty-jobs-duration" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-jobs-duration"></div>
+      </div>
+      <div class="card">
+        <h3>Results per pipeline</h3>
+        <div class="chart"><canvas id="chart-pipelines-results"></canvas></div>
+        <div class="empty" id="empty-pipelines-results" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-pipelines-results"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sec-bundles">
+    <h2>Bundles</h2>
+    <p class="meta">Attempts per bundle, and what could not be fixed by retrying.</p>
+    <div class="notice" id="notice-bundles" hidden></div>
+    <div class="grid">
+      <div class="card">
+        <h3>Runs per bundle (attempts)</h3>
+        <div class="chart"><canvas id="chart-bundle-attempts"></canvas></div>
+        <div class="empty" id="empty-bundle-attempts" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-bundle-attempts"></div>
+      </div>
+      <div class="card">
+        <h3>Escalations over time</h3>
+        <div class="chart"><canvas id="chart-escalations-over-time"></canvas></div>
+        <div class="empty" id="empty-escalations-over-time" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-escalations-over-time"></div>
+      </div>
+      <div class="card">
+        <h3>Jobs that were escalated</h3>
+        <div class="chart"><canvas id="chart-escalations-jobs"></canvas></div>
+        <div class="empty" id="empty-escalations-jobs" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-escalations-jobs"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sec-webhooks">
+    <h2>Webhooks to Zuul</h2>
+    <p class="meta">The GitLab webhooks git-stream delivered to Zuul.</p>
+    <div class="notice" id="notice-webhooks" hidden></div>
+    <div class="grid">
+      <div class="card">
+        <h3>Webhook deliveries over time</h3>
+        <div class="chart"><canvas id="chart-webhooks-over-time"></canvas></div>
+        <div class="empty" id="empty-webhooks-over-time" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-webhooks-over-time"></div>
+      </div>
+      <div class="card small">
+        <h3>Webhooks delivered or not</h3>
+        <div class="chart"><canvas id="chart-webhooks-ok"></canvas></div>
+        <div class="empty" id="empty-webhooks-ok" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-webhooks-ok"></div>
+      </div>
+      <div class="card">
+        <h3>Webhooks by kind</h3>
+        <div class="chart"><canvas id="chart-webhooks-kinds"></canvas></div>
+        <div class="empty" id="empty-webhooks-kinds" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-webhooks-kinds"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sec-messages">
+    <h2>Messages sent to git-stream</h2>
+    <p class="meta">Every message POSTed to /api/stream, and what became of it.</p>
+    <div class="notice" id="notice-messages" hidden></div>
+    <div class="grid">
+      <div class="card">
+        <h3>Messages over time, by outcome</h3>
+        <div class="chart"><canvas id="chart-messages-over-time"></canvas></div>
+        <div class="empty" id="empty-messages-over-time" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-messages-over-time"></div>
+      </div>
+      <div class="card">
+        <h3>Messages by action</h3>
+        <div class="chart"><canvas id="chart-messages-actions"></canvas></div>
+        <div class="empty" id="empty-messages-actions" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-messages-actions"></div>
+      </div>
+      <div class="card">
+        <h3>Messages by sender</h3>
+        <div class="chart"><canvas id="chart-messages-senders"></canvas></div>
+        <div class="empty" id="empty-messages-senders" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-messages-senders"></div>
+      </div>
+      <div class="card small">
+        <h3>Messages by outcome</h3>
+        <div class="chart"><canvas id="chart-messages-outcomes"></canvas></div>
+        <div class="empty" id="empty-messages-outcomes" hidden>No data for these filters.</div>
+        <div class="table-wrap" id="table-messages-outcomes"></div>
+      </div>
+    </div>
+  </section>
+
+<footer>
+  Times are UTC.  Builds, escalations and webhooks need <code>[metrics] path</code>
+  in git-stream's config; messages are always recorded.  The page refreshes
+  every 10 seconds and keeps its filters in the address, so a view can be shared.
+</footer>
+</body>
+</html>
