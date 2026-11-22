@@ -168,3 +168,76 @@ def test_the_state_mirror_does_not_rewrite_the_log(forge):
     forge.send({'action': 'comment', 'project': 'bundles', 'mr': 'b-1',
                 'note': 'x'})  # saves the state mirror
     assert log(forge, key='b-1')['messages'][-1] == first
+
+
+# -- a host without sqlite3: the JSON fallback store ------------------------
+
+@pytest.fixture
+def json_forge(make_forge, monkeypatch):
+    """A forge on the JSON fallback store, as on a host with no sqlite3."""
+    import os
+    from git_stream import forge as forge_module
+    monkeypatch.setattr(
+        forge_module, '_load_store',
+        lambda data_dir: forge_module.JsonStore(
+            os.path.join(data_dir, 'state.json')))
+    running = make_forge()
+    running.send({'action': 'create_project', 'project': 'bundles'})
+    return running
+
+
+def status_of(request):
+    try:
+        with urllib.request.urlopen(request) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def test_without_sqlite_the_message_log_answers_501(json_forge):
+    request = urllib.request.Request(json_forge.url + '/api/stream/messages')
+    assert status_of(request) == 501
+
+
+def test_without_sqlite_data_is_a_501_and_creates_nothing(json_forge):
+    for msg in ({'action': 'open_mr', 'project': 'bundles', 'title': 'T',
+                 'data': {'a': 1}},
+                {'action': 'push', 'project': 'bundles', 'data': {'a': 1}}):
+        assert refused(json_forge, msg) == 501
+    assert json_forge.forge.state['projects']['bundles']['mrs'] == {}
+    json_forge.send({'action': 'open_mr', 'project': 'bundles',
+                     'title': 'T'})  # no data: fine without sqlite
+    for path in ('/api/v4/projects/bundles/data',
+                 '/api/v4/projects/bundles/merge_requests/1/data'):
+        assert status_of(urllib.request.Request(json_forge.url + path)) == 501
+
+
+def test_without_sqlite_the_rest_of_the_forge_still_works(json_forge):
+    mr = json_forge.send({'action': 'open_mr', 'project': 'bundles',
+                          'title': 'T', 'key': 'k'})
+    json_forge.send({'action': 'label', 'project': 'bundles', 'mr': 'k',
+                     'add': ['x']})
+    json_forge.send({'action': 'comment', 'project': 'bundles', 'mr': 'k',
+                     'note': 'hi'})
+    merged = json_forge.send({'action': 'merge', 'project': 'bundles',
+                              'mr': mr['iid']})
+    assert merged['state'] == 'merged'
+
+
+def test_the_log_is_written_before_zuul_can_hear_about_the_change(
+        make_forge):
+    """The row exists, as "received", when the webhook goes out."""
+    seen = []
+    forge = make_forge()
+    inner = forge.forge.emit
+
+    def emit(payload):
+        seen.append([m['outcome'] for m in forge.forge.messages(
+            {'action': 'open_mr'})])
+        inner(payload)
+    forge.forge.emit = emit
+    forge.send({'action': 'create_project', 'project': 'bundles'})
+    open_mr(forge, 'b-1')
+    assert seen == [['received']]
+    assert [m['outcome'] for m in forge.forge.messages(
+        {'action': 'open_mr'})] == ['applied']

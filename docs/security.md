@@ -82,7 +82,9 @@ other sender data, so unlike the other stream GETs the endpoint needs a
 stream token (or an open stream in insecure mode); any valid token reads every
 sender's messages.  The row is written as `received` before anything acts on
 the message and given its outcome after, and a failing log is a warning, never
-a failed message.  Bodies over 16 KiB are logged as
+a failed message.  A body that is not valid JSON (or is nested past what the
+parser can read) never becomes a message, so it is a 400 that is not logged;
+the same holds for a request refused before it is read (401, 413, 408).  Bodies over 16 KiB are logged as
 `{"truncated": true, "size": N}`; a page is at most 200 rows.  The log is not
 trimmed: retention is in `docs/backlog.md`.  Without `sqlite3` there is no log
 and the endpoint answers 501.  Tested in `tests/test_message_log.py`.

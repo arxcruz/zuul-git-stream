@@ -1106,7 +1106,10 @@ class Forge:
         if not hasattr(self.store, 'add_message'):
             return None
         body = msg if isinstance(msg, dict) else {'message': msg}
-        text = json.dumps(body, default=str)
+        try:
+            text = json.dumps(body, default=str)
+        except (RecursionError, ValueError):  # too deeply nested to log
+            text = json.dumps({'truncated': True, 'size': None})
         if len(text) > MESSAGE_BODY_MAX:
             text = json.dumps({'truncated': True, 'size': len(text)})
 

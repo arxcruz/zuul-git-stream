@@ -16,6 +16,9 @@ import os
 import subprocess
 import sys
 
+# git fetch POSTs a list of wanted commits: far below this.
+MAX_BODY = 10 * 1024 * 1024
+
 AUTHOR = {'GIT_AUTHOR_NAME': 'demo', 'GIT_AUTHOR_EMAIL': 'demo@example.com',
           'GIT_COMMITTER_NAME': 'demo',
           'GIT_COMMITTER_EMAIL': 'demo@example.com'}
@@ -74,8 +77,14 @@ def handler(root):
                 return self._send(403, b'read only\n', 'text/plain', {})
             body = b''
             if self.command == 'POST':
-                body = self.rfile.read(int(
-                    self.headers.get('Content-Length', 0)))
+                try:
+                    length = int(self.headers.get('Content-Length', 0))
+                except ValueError:
+                    length = -1
+                if not 0 <= length <= MAX_BODY:
+                    return self._send(400, b'bad Content-Length\n',
+                                      'text/plain', {})
+                body = self.rfile.read(length)
             env = dict(os.environ, GIT_PROJECT_ROOT=root,
                        GIT_HTTP_EXPORT_ALL='1', PATH_INFO=path,
                        QUERY_STRING=query, REQUEST_METHOD=self.command,

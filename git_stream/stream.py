@@ -74,12 +74,25 @@ def _no_files(msg):
                          'files)')
 
 
-def _depth(value):
-    if isinstance(value, dict):
-        return 1 + max(map(_depth, value.values()), default=0)
-    if isinstance(value, list):
-        return 1 + max(map(_depth, value), default=0)
-    return 0
+def _deeper_than(value, limit):
+    """True if value nests dicts and lists more than limit levels deep.
+
+    Walks with a stack, not recursion: a body nested thousands of levels
+    deep must be a 400, not a RecursionError.
+    """
+    stack = [(value, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, dict):
+            children = item.values()
+        elif isinstance(item, list):
+            children = item
+        else:
+            continue
+        if depth + 1 > limit:
+            return True
+        stack.extend((child, depth + 1) for child in children)
+    return False
 
 
 def _data(msg):
@@ -89,7 +102,7 @@ def _data(msg):
         return None
     if not isinstance(data, dict):
         raise ForgeError('"data" must be a JSON object')
-    if _depth(data) > DATA_MAX_DEPTH:
+    if _deeper_than(data, DATA_MAX_DEPTH):
         raise ForgeError('"data" is nested more than %d levels deep'
                          % DATA_MAX_DEPTH)
     if len(json.dumps(data).encode('utf8')) > DATA_MAX_BYTES:

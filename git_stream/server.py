@@ -6,7 +6,7 @@
   /api/stream/deliveries      recent webhook deliveries
   /api/stream/escalations     merge requests escalated by the retry policy
   /api/stream/messages        the log of every stream message (stream token)
-  /,/escalations, /<project>, /<project>/merge_requests/<iid>
+  /, /escalations, /<project>, /<project>/merge_requests/<iid>
                               small web pages to look at the forge
   /health
 """
@@ -223,7 +223,7 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                 if body and 'json' in ctype:
                     try:
                         parsed = json.loads(body)
-                    except ValueError:
+                    except (ValueError, RecursionError):
                         raise ForgeError('invalid JSON body')
                     if not isinstance(parsed, dict):
                         raise ForgeError('the JSON body must be an object')
@@ -427,7 +427,7 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                 return self._unauthorized_stream()
             try:
                 msgs = json.loads(self._body() or b'null')
-            except ValueError:
+            except (ValueError, RecursionError):
                 return self._error(400, 'invalid JSON body')
             if isinstance(msgs, list):
                 results = []

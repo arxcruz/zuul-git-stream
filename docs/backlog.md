@@ -191,6 +191,12 @@ section 1.
   token/user maps; `server.py` imports the private `stream._labels`; status
   and message conventions differ (`'404 Project Not Found'` against
   `'invalid project name'`, double approval is 401).
+- [S2] Every stream message does its SQLite commits (the log's two, and the
+  data tables') while holding the forge lock, which also serves Zuul's REST
+  calls and the webhook emission; each commit is an fsync.  A burst of
+  messages could delay Zuul's API.  Unmeasured: time it under load, then move
+  the log to its own connection or batch the commits
+  (`record_message`/`finish_message` in `git_stream/forge.py`).
 - [S3] The message log (`message` table in `state.db`, `git_stream/forge.py`)
   is never trimmed and has no UI or read token of its own; it grows with every
   message.  Needs a retention setting (age or count), a page, and probably a
