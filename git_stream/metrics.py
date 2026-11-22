@@ -31,6 +31,8 @@ import math
 import sqlite3
 import threading
 
+from git_stream import aggregate
+
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS run (
   id          INTEGER PRIMARY KEY,
@@ -74,6 +76,44 @@ CREATE TABLE IF NOT EXISTS delivery (
 );
 '''
 
+
+FAILED = "('FAILURE', 'TIMED_OUT', 'POST_FAILURE', 'NODE_FAILURE')"
+
+
+def _equals(value):
+    return [value]
+
+
+# How the aggregate endpoints read the run and delivery tables (see
+# aggregate.py): fixed SQL, the query's values only as parameters.
+RUN_SPEC = {
+    'table': 'run', 'time': 'finished_at',
+    'groups': {'job': 'job', 'result': 'result', 'pipeline': 'pipeline',
+               'project': 'project', 'mr': 'COALESCE(key, CAST(mr AS TEXT))'},
+    'filters': {
+        'project': ('project = ?', _equals), 'job': ('job = ?', _equals),
+        'result': ('result = ?', _equals),
+        'pipeline': ('pipeline = ?', _equals),
+        'mr': ('(key = ? OR CAST(mr AS TEXT) = ?)', lambda v: [v, v])},
+    'extra': [
+        ('pass', "SUM(result = 'SUCCESS')"),
+        ('fail', 'SUM(result IN %s)' % FAILED),
+        ('other', "SUM(CASE WHEN result = 'SUCCESS' OR result IN %s THEN 0 "
+                  "ELSE 1 END)" % FAILED),
+        ('avg_ms', 'AVG(elapsed_ms)'), ('max_ms', 'MAX(elapsed_ms)'),
+        ('timed', 'COUNT(elapsed_ms)')],
+}
+DELIVERY_SPEC = {
+    'table': 'delivery', 'time': 'time',
+    'groups': {'kind': 'kind', 'action': 'action', 'status': 'status',
+               'project': 'project',
+               'ok': "CASE WHEN ok = 1 THEN 'ok' ELSE 'failed' END"},
+    'filters': {
+        'project': ('project = ?', _equals), 'kind': ('kind = ?', _equals),
+        'action': ('action = ?', _equals), 'ok': ('ok = ?', _equals)},
+    'extra': [('ok', 'SUM(ok)'), ('failed', 'COUNT(*) - SUM(ok)'),
+              ('attempts', 'SUM(attempts)')],
+}
 
 # Columns added after the first release: a database made by an older
 # version gets them when it is opened (Metrics.migrate).
@@ -218,6 +258,54 @@ class Metrics:
                 j['fail_rate'] = round(j['fail'] / j['runs'], 3)
         return {'jobs': jobs,
                 'runs': sum(j['runs'] for j in by_job.values())}
+
+    def aggregate(self, query):
+        """Count runs, escalations or deliveries as a checked query asks
+        (aggregate.parse)."""
+        with self.lock:
+            if query.kind == 'runs':
+                return aggregate.aggregate(self.conn, query, RUN_SPEC)
+            if query.kind == 'deliveries':
+                return aggregate.aggregate(self.conn, query, DELIVERY_SPEC)
+            return self._aggregate_escalations(query)
+
+    def _aggregate_escalations(self, query):
+        """Escalations are few and each lists several failing jobs, so they
+        are counted here rather than in SQL."""
+        where, args = [], []
+        project = query.filters.get('project')
+        if project is not None:
+            where.append('project = ?')
+            args.append(project)
+        mr = query.filters.get('mr')
+        if mr is not None:
+            where.append('(key = ? OR CAST(mr AS TEXT) = ?)')
+            args += [mr, mr]
+        if query.lo is not None:
+            where.append('time >= ?')
+            args.append(query.lo)
+        if query.hi is not None:
+            where.append('time < ?')
+            args.append(query.hi)
+        rows = self.conn.execute(
+            'SELECT project, mr, key, time, failing_json FROM escalation%s'
+            % (' WHERE ' + ' AND '.join(where) if where else ''),
+            args).fetchall()
+        want_job = query.filters.get('job')
+        entries = []
+        for r in rows:
+            jobs = sorted({f.get('job') for f in
+                           json.loads(r['failing_json'] or '[]')
+                           if isinstance(f, dict)} - {None})
+            if want_job is not None and want_job not in jobs:
+                continue
+            if query.group == 'job':
+                entries += [(job, r['time']) for job in jobs]
+            else:
+                group = {None: None, 'project': r['project'],
+                         'mr': r['key'] or str(r['mr'])}[query.group]
+                entries.append((group, r['time']))
+        return aggregate.count_rows(query, entries)
 
     def escalations(self, limit=100):
         rows = self.conn.execute(
