@@ -7,7 +7,7 @@ import urllib.request
 
 import pytest
 
-from git_stream.forge import Forge, ForgeError
+from git_stream.forge import Forge
 from git_stream.repos import Repo
 from conftest import Running, rejected
 
@@ -19,10 +19,11 @@ def git(*args, cwd=None):
 
 def test_clone_and_fetch_mr_over_http(forge, tmp_path):
     mr = forge.send({'action': 'open_mr', 'project': 'bundles',
-                     'title': 'Add bundle', 'files': {'bundle.yaml': 'x'}})
+                     'title': 'Add bundle', 'data': {'bundle.yaml': 'x'}})
     work = tmp_path / 'work'
     git('clone', '-q', forge.url + '/bundles.git', str(work))
-    assert (work / 'README.md').read_text() == 'bundles\n'
+    # A placeholder project: git-stream puts no files in it.
+    assert [x.name for x in work.iterdir() if x.name != '.git'] == []
     # This is what Zuul's merger does to test a merge request.
     git('fetch', '-q', 'origin', mr_ref := 'refs/merge-requests/1/head',
         cwd=work)
@@ -44,10 +45,10 @@ def test_git_push_is_refused(forge, tmp_path):
 def test_keys_address_mrs_and_ids_deduplicate(forge):
     first = forge.send({'action': 'open_mr', 'project': 'bundles',
                         'key': 'b-7', 'title': 'b-7', 'id': 'm1',
-                        'files': {'bundle.yaml': '1'}})
+                        'data': {'bundle.yaml': '1'}})
     dup = forge.send({'action': 'open_mr', 'project': 'bundles',
                       'key': 'b-7', 'title': 'b-7', 'id': 'm1',
-                      'files': {'bundle.yaml': '2'}})
+                      'data': {'bundle.yaml': '2'}})
     assert dup == {'duplicate': True, 'id': 'm1'}
     note = forge.send({'action': 'comment', 'project': 'bundles',
                        'mr': 'b-7', 'note': 'rerun failed'})
@@ -57,10 +58,10 @@ def test_keys_address_mrs_and_ids_deduplicate(forge):
 
 
 def test_conflicting_mr_cannot_merge(forge):
-    a = forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'a',
-                    'files': {'README.md': 'a\n'}})
-    b = forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'b',
-                    'files': {'README.md': 'b\n'}})
+    # Conflicts need file content, which no message can carry: use the
+    # forge's own API.
+    a = forge.forge.open_mr('bundles', 'a', {'README.md': 'a\n'}, 'me')
+    b = forge.forge.open_mr('bundles', 'b', {'README.md': 'b\n'}, 'me')
     forge.send({'action': 'merge', 'project': 'bundles', 'mr': a['iid']})
     with urllib.request.urlopen('%s/api/v4/projects/bundles/merge_requests/%s'
                                 % (forge.url, b['iid'])) as r:
@@ -72,8 +73,7 @@ def test_conflicting_mr_cannot_merge(forge):
 
 
 def test_raw_file(forge):
-    forge.send({'action': 'push', 'project': 'bundles',
-                'files': {'dir/a.yaml': 'a: 1\n'}})
+    forge.forge.push('bundles', {'dir/a.yaml': 'a: 1\n'}, None, 'me')
     url = '%s/api/v4/projects/bundles/repository/files/dir%%2Fa.yaml/raw' \
         '?ref=master' % forge.url
     with urllib.request.urlopen(url) as r:
@@ -160,7 +160,7 @@ def test_push_rejects_invalid_branch_names(forge):
     for branch in INVALID_BRANCHES:
         assert_invalid_branch(forge, {
             'action': 'push', 'project': 'bundles', 'branch': branch,
-            'files': {'a.yaml': 'a: 1\n'}}, branch)
+            'data': {'a.yaml': 'a: 1\n'}}, branch)
     # Nothing was created and no webhook announced a change.
     assert repo.out('for-each-ref', '--format=%(refname)') == refs_before
     assert len(forge.hooks_of('push')) == pushes_before
@@ -169,11 +169,11 @@ def test_push_rejects_invalid_branch_names(forge):
 def test_push_accepts_ordinary_branch_names(forge):
     pushed = forge.send({'action': 'push', 'project': 'bundles',
                          'branch': 'release/1.0',
-                         'files': {'a.yaml': 'a: 1\n'}})
+                         'data': {'a.yaml': 'a: 1\n'}})
     assert pushed['ref'] == 'refs/heads/release/1.0'
     # No branch means the project's default branch.
     default = forge.send({'action': 'push', 'project': 'bundles',
-                          'files': {'b.yaml': 'b: 1\n'}})
+                          'data': {'b.yaml': 'b: 1\n'}})
     assert default['ref'] == 'refs/heads/master'
 
 
@@ -182,16 +182,16 @@ def test_open_mr_rejects_invalid_target_branch_names(forge):
         assert_invalid_branch(forge, {
             'action': 'open_mr', 'project': 'bundles', 'title': 'T',
             'key': 'k', 'target_branch': branch,
-            'files': {'a.yaml': 'a: 1\n'}}, branch)
+            'data': {'a.yaml': 'a: 1\n'}}, branch)
     assert forge.forge.project('bundles')['mrs'] == {}
 
 
 def test_open_mr_accepts_an_existing_target_branch(forge):
     forge.send({'action': 'push', 'project': 'bundles',
-                'branch': 'release/1.0', 'files': {'a.yaml': 'a: 1\n'}})
+                'branch': 'release/1.0', 'data': {'a.yaml': 'a: 1\n'}})
     mr = forge.send({'action': 'open_mr', 'project': 'bundles',
                      'title': 'T', 'target_branch': 'release/1.0',
-                     'files': {'b.yaml': 'b: 1\n'}})
+                     'data': {'b.yaml': 'b: 1\n'}})
     assert mr['target_branch'] == 'release/1.0'
 
 
@@ -222,7 +222,7 @@ def test_tag_accepts_ordinary_names(forge):
 def test_tagging_twice_is_a_conflict_and_changes_nothing(forge):
     first = forge.send({'action': 'tag', 'project': 'bundles', 'tag': 'v1'})
     forge.send({'action': 'push', 'project': 'bundles',
-                'files': {'a.yaml': 'a: 1\n'}})
+                'data': {'a.yaml': 'a: 1\n'}})
     tags_before = len(forge.hooks_of('tag_push'))
     code, message = rejected(forge, {
         'action': 'tag', 'project': 'bundles', 'tag': 'v1'})
@@ -261,24 +261,12 @@ def test_valid_tag_accepts_ordinary_names(name):
     assert valid_tag(name)
 
 
-def test_seed_goes_through_create_projects_validation(tmp_path):
-    """seed() has no branch input; it must not bypass create_project."""
-    from git_stream.__main__ import seed
-    (tmp_path / 'seed' / 'a..b').mkdir(parents=True)
-    (tmp_path / 'seed' / 'a..b' / 'README.md').write_text('hi\n')
-    f = Forge(str(tmp_path / 'data'), 'http://x')
-    with pytest.raises(ForgeError, match='invalid project name'):
-        seed(f, str(tmp_path / 'seed'))
-    assert f.state['projects'] == {}
-    assert os.listdir(f.repo_root) == []
-
-
 def test_bad_messages_are_rejected(forge):
     for msg, code in [({'action': 'explode', 'project': 'bundles'}, 400),
                       ({'action': 'comment', 'project': 'bundles',
                         'mr': 'nope', 'note': 'x'}, 404),
                       ({'action': 'push', 'project': 'missing',
-                        'files': {'a': 'b'}}, 404)]:
+                        'data': {'a': 'b'}}, 404)]:
         with pytest.raises(urllib.error.HTTPError) as e:
             forge.send(msg)
         assert e.value.code == code
@@ -286,14 +274,14 @@ def test_bad_messages_are_rejected(forge):
 
 def test_stream_requires_a_token_when_configured(forge, tmp_path):
     # With no stream tokens configured the stream is open (the default).
-    forge.send({'action': 'push', 'project': 'bundles', 'files': {'a': '1'}})
+    forge.send({'action': 'push', 'project': 'bundles', 'data': {'a': '1'}})
     # A fresh forge (its own data dir) with tokens configured: only a valid
     # token is accepted.
     r = Running(str(tmp_path / 'streamdata'),
                 stream_tokens={'build-system': 'secret-stream'})
     r.forge.create_project('bundles', {'README.md': 'x'})
     try:
-        msg = {'action': 'push', 'project': 'bundles', 'files': {'a': '1'}}
+        msg = {'action': 'push', 'project': 'bundles', 'data': {'a': '1'}}
         with pytest.raises(urllib.error.HTTPError) as e:
             r.send(msg)
         assert e.value.code == 401
@@ -307,7 +295,7 @@ def test_stream_requires_a_token_when_configured(forge, tmp_path):
 
 def test_state_survives_restart(forge, tmp_path):
     forge.send({'action': 'open_mr', 'project': 'bundles', 'key': 'k',
-                'title': 't', 'files': {'f': 'x'}})
+                'title': 't', 'data': {'f': 'x'}})
     again = Forge(forge.forge.data_dir, forge.url)
     p = again.project('bundles')
     assert again.mr(p, 'k')['title'] == 't'
@@ -315,7 +303,7 @@ def test_state_survives_restart(forge, tmp_path):
 
 def test_web_pages(forge):
     forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'Hi <b>',
-                'files': {'f': 'x'}})
+                'data': {'f': 'x'}})
     forge.send({'action': 'comment', 'project': 'bundles', 'mr': 1,
                 'note': 'Build succeeded.'})
     for path in ('/', '/bundles', '/bundles/merge_requests/1',
@@ -323,18 +311,3 @@ def test_web_pages(forge):
         with urllib.request.urlopen(forge.url + path) as r:
             page = r.read().decode()
     assert 'Hi &lt;b&gt;' in page and 'Build succeeded.' in page
-
-
-def test_seed_skips_caches_and_keeps_binary_files(tmp_path):
-    from git_stream.__main__ import seed
-    src = tmp_path / 'seed' / 'proj'
-    (src / '__pycache__').mkdir(parents=True)
-    (src / '__pycache__' / 'x.pyc').write_bytes(b'\xcb\x00')
-    (src / 'logo.bin').write_bytes(b'\xcb\x00\xff')
-    (src / 'README.md').write_text('hi\n')
-    f = Forge(str(tmp_path / 'data'), 'http://x')
-    seed(f, str(tmp_path / 'seed'))
-    repo = f.repo(f.project('proj'))
-    assert repo.out('ls-tree', '--name-only', 'master').split() == [
-        'README.md', 'logo.bin']
-    assert repo.git('show', 'master:logo.bin').stdout == b'\xcb\x00\xff'

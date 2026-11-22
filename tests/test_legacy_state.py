@@ -24,7 +24,7 @@ def data_dir(tmp_path):
     first.send({'action': 'create_project', 'project': 'fine',
                 'branch': 'release/1.0'})
     first.send({'action': 'open_mr', 'project': 'legacy', 'title': 'T',
-                'key': 'k', 'files': {'a.yaml': 'a: 1\n'}})
+                'key': 'k', 'data': {'a.yaml': 'a: 1\n'}})
     first.stop()
     db = sqlite3.connect(str(path / 'state.db'))
     db.execute("UPDATE project SET default_branch = '-x' "
@@ -66,15 +66,15 @@ def test_startup_names_the_project_and_branch_in_a_warning(
 
 def test_the_rest_of_the_forge_keeps_working(restarted):
     pushed = restarted.send({'action': 'push', 'project': 'fine',
-                             'files': {'b.yaml': 'b: 1\n'}})
+                             'data': {'b.yaml': 'b: 1\n'}})
     assert pushed['ref'] == 'refs/heads/release/1.0'
 
 
 @pytest.mark.parametrize('msg', [
-    {'action': 'push', 'files': {'b.yaml': 'b: 1\n'}},
+    {'action': 'push', 'data': {'b.yaml': 'b: 1\n'}},
     {'action': 'tag', 'tag': 'v1'},
     {'action': 'open_mr', 'title': 'T2', 'key': 'k2',
-     'files': {'c.yaml': 'c: 1\n'}}], ids=['push', 'tag', 'open_mr'])
+     'data': {'c.yaml': 'c: 1\n'}}], ids=['push', 'tag', 'open_mr'])
 def test_what_needs_the_default_branch_is_refused(restarted, msg):
     hooks_before = len(restarted.hooks)
     code, message = rejected(restarted, dict(msg, project='legacy'))
@@ -87,10 +87,10 @@ def test_what_needs_the_default_branch_is_refused(restarted, msg):
 
 @pytest.mark.parametrize('msg', [
     {'action': 'comment', 'mr': 'k', 'note': 'still here'},
-    {'action': 'push', 'branch': 'master', 'files': {'b.yaml': 'b: 1\n'}},
+    {'action': 'push', 'branch': 'master', 'data': {'b.yaml': 'b: 1\n'}},
     {'action': 'tag', 'tag': 'v1', 'rev': 'master'},
     {'action': 'open_mr', 'title': 'T2', 'key': 'k2', 'target_branch':
-     'master', 'files': {'c.yaml': 'c: 1\n'}}],
+     'master', 'data': {'c.yaml': 'c: 1\n'}}],
     ids=['comment', 'push-explicit-branch', 'tag-explicit-rev',
          'open_mr-explicit-target'])
 def test_what_does_not_need_it_still_works(restarted, msg):

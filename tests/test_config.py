@@ -22,7 +22,7 @@ def test_file_then_environment_then_command_line(tmp_path):
     path = write(tmp_path, '''
 [server]
 base_url = "http://git-stream:8090"
-seed = "/repos"
+data = "/srv/x"
 
 [api_tokens]
 zuul = "file-token"
@@ -37,7 +37,7 @@ max_attempts = 5
 escalate = ["http://jira-adapter/hook"]
 ''')
     s = config.load(path, environ={})
-    assert s['server']['seed'] == '/repos'
+    assert s['server']['data'] == '/srv/x'
     assert s['api_tokens'] == {'zuul': 'file-token'}
     assert s['webhooks']['urls'] == ['http://zuul/payload']
     assert s['retry']['max_attempts'] == 5

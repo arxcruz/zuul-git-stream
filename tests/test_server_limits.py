@@ -72,10 +72,9 @@ def padded(size):
 @pytest.fixture
 def limited(make_forge):
     forge = make_forge(max_body=LIMIT, read_timeout=1)
-    forge.send({'action': 'create_project', 'project': 'bundles',
-                'files': {'README.md': 'x\n'}})
+    forge.send({'action': 'create_project', 'project': 'bundles'})
     forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'T',
-                'key': 'k', 'files': {'a.yaml': 'a: 1\n'}})
+                'key': 'k', 'data': {'a.yaml': 'a: 1\n'}})
     return forge
 
 
@@ -234,14 +233,13 @@ def test_a_stalled_body_does_not_hold_the_forge_lock(make_forge):
     """Writes take the forge's lock; reading a body must happen before."""
     import time
     forge = make_forge(max_body=LIMIT, read_timeout=30)
-    forge.send({'action': 'create_project', 'project': 'bundles',
-                'files': {'README.md': 'x\n'}})
+    forge.send({'action': 'create_project', 'project': 'bundles'})
     stalled = Conn(forge)
     try:
         stalled.send(head(length=100) + b'x')
         start = time.monotonic()
         forge.send({'action': 'open_mr', 'project': 'bundles',
-                    'title': 'T', 'key': 'k', 'files': {'a.yaml': 'a: 1\n'}})
+                    'title': 'T', 'key': 'k', 'data': {'a.yaml': 'a: 1\n'}})
         assert time.monotonic() - start < 5
     finally:
         stalled.close()

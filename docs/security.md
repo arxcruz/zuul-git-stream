@@ -89,6 +89,10 @@ and the endpoint answers 501.  Tested in `tests/test_message_log.py`.
 
 ## Data on merge requests and pushes
 
+Senders cannot put files in git-stream: `files` in any message is a 400, so
+no sender-chosen path or content reaches a git tree (the path-escaping
+surface for `git update-index` is gone from the stream).
+
 `data` (`open_mr`, `update_mr`, `push`) is stored in `state.db` (`mr_data`,
 `project_data`: append-only, never rewritten by the state mirror) and read
 back by jobs from `GET /api/v4/projects/<p>/merge_requests/<iid>/data` and

@@ -5,15 +5,15 @@ Senders don't have to keep the replies: merge requests can be addressed
 by a "key" chosen by the sender (e.g. a bundle id) instead of the iid the
 forge assigns, and a message "id" makes a resent message harmless.
 
-  {"action": "create_project", "project": "p", "files": {...}}
-  {"action": "push", "project": "p", "branch": "master", "files": {...},
+  {"action": "create_project", "project": "p"}
+  {"action": "push", "project": "p", "branch": "master", "data": {...},
    "message": "..."}
   {"action": "tag", "project": "p", "tag": "v1", "rev": "master"}
   {"action": "open_mr", "project": "p", "key": "b-1", "title": "...",
-   "description": "...", "files": {...}, "target_branch": "master",
+   "description": "...", "data": {...}, "target_branch": "master",
    "max_attempts": 3, "callback_url": "https://announcer.example.com/hook",
    "data": {...}}
-  {"action": "update_mr", "project": "p", "mr": "b-1", "files": {...},
+  {"action": "update_mr", "project": "p", "mr": "b-1",
    "title": "...", "description": "...", "data": {...}}
   {"action": "comment", "project": "p", "mr": "b-1", "note": "recheck"}
   {"action": "label", "project": "p", "mr": 3, "add": [...], "remove": [...]}
@@ -35,19 +35,20 @@ merge request there: "passed" when Zuul approves it, "escalated" when the
 retries run out, each at most once per sha.  One attempt, in the background;
 a redelivered open_mr keeps the first URL.  See the README, "Callbacks".
 
-A "data" object (open_mr, update_mr, push; at most 64 KiB and 8 levels deep,
-else 400) is kept with the version it came with: every change of the data is
-a new commit, so Zuul sees a changed MR, and jobs read it back from
-GET /api/v4/projects/<p>/merge_requests/<iid>/data (``?sha=`` for an older
-version).  Merging the MR, or pushing to the default branch, makes it the
-project's current data, at GET /api/v4/projects/<p>/data.
+Senders send messages, not files: "files" in any message is a 400 that
+says to send "data".  A "data" object (open_mr, update_mr, push; at most
+64 KiB and 8 levels deep, else 400) is kept with the version it came with.
+Every change of the data is a new commit, so Zuul sees a changed MR, and jobs
+read it back from GET /api/v4/projects/<p>/merge_requests/<iid>/data
+(``?sha=`` for an older version).  Merging the MR, or pushing to the default
+branch, makes it the project's current data, at GET /api/v4/projects/<p>/data.
 
 open_mr creates a project that does not exist yet (a placeholder: one commit
-with an empty tree), as does create_project without files; every other action
-on a missing project, push included, is a 404.
+with an empty tree), as does create_project; every other action on a missing
+project, push included, is a 404.
 
-In "files", a null value deletes the file.  Branch and tag names must be ones
-git accepts (400 otherwise); tagging an existing name is a 409.
+Branch and tag names must be ones git accepts (400 otherwise); tagging an
+existing name is a 409.
 """
 
 import json
@@ -65,12 +66,12 @@ def _require(msg, *names):
             raise ForgeError('%s: "%s" is required' % (msg['action'], name))
 
 
-def _files(msg):
-    files = msg.get('files') or {}
-    if not isinstance(files, dict) or not all(
-            isinstance(v, (str, type(None))) for v in files.values()):
-        raise ForgeError('"files" must map paths to text (or null)')
-    return files
+def _no_files(msg):
+    """Refuse "files": senders send "data", never file content."""
+    if msg.get('files') is not None:
+        raise ForgeError('"files" is not accepted: send "data", a JSON '
+                         'object, instead (git-stream keeps no sender '
+                         'files)')
 
 
 def _depth(value):
@@ -173,16 +174,18 @@ def _apply(forge, msg, sender):
 
 
 def _create_project(forge, msg, by):
-    p = forge.create_project(msg['project'], _files(msg) or None,
+    _no_files(msg)
+    p = forge.create_project(msg['project'], None,
                              msg.get('branch') or 'master',
                              msg.get('description', ''), by)
     return forge.project_json(p)
 
 
 def _push(forge, msg, by):
-    if not msg.get('files') and msg.get('data') is None:
-        raise ForgeError('push: "files" or "data" is required')
-    return forge.push(msg['project'], _files(msg), msg.get('message'), by,
+    _no_files(msg)
+    if msg.get('data') is None:
+        raise ForgeError('push: "data" is required')
+    return forge.push(msg['project'], {}, msg.get('message'), by,
                       branch=msg.get('branch'), start=msg.get('start'),
                       data=_data(msg))
 
@@ -194,8 +197,9 @@ def _tag(forge, msg, by):
 
 def _open_mr(forge, msg, by):
     _require(msg, 'title')
+    _no_files(msg)
     return forge.open_mr(
-        msg['project'], msg['title'], _files(msg), by,
+        msg['project'], msg['title'], {}, by,
         description=msg.get('description', ''),
         target_branch=msg.get('target_branch'),
         message=msg.get('message'), key=msg.get('key'),
@@ -206,8 +210,9 @@ def _open_mr(forge, msg, by):
 
 def _update_mr(forge, msg, by):
     _require(msg, 'mr')
+    _no_files(msg)
     return forge.update_mr(
-        msg['project'], msg['mr'], by, files=_files(msg),
+        msg['project'], msg['mr'], by,
         title=msg.get('title'), description=msg.get('description'),
         message=msg.get('message'), data=_data(msg))
 

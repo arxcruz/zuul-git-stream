@@ -8,8 +8,6 @@ listen = "0.0.0.0:8090"
 # The name Zuul reaches git-stream by; also used in merge request links.
 base_url = "http://git-stream:8090"
 data = "/srv/git-stream"
-# Create bundles, ci-tool and zuul-config from ./repos on the first start.
-seed = "/repos"
 # The stream is open to whoever can reach it, and any API token is accepted
 # (not just Zuul's).  Fine for a demo only because compose publishes the
 # ports on 127.0.0.1; never in production (docs/security.md).

@@ -148,7 +148,7 @@ A new `POST /api/stream` action is done when it has:
 
 ```
 git_stream/               the service (stdlib only)
-  __main__.py             CLI entry point (`git-stream`), seeding, wiring
+  __main__.py             CLI entry point (`git-stream`), wiring
   config.py               settings: defaults < TOML file < env < CLI
   forge.py                state: projects, MRs, notes, approvals; emits webhooks
   repos.py                bare git repos changed without a work tree
@@ -161,9 +161,13 @@ git_stream/               the service (stdlib only)
   metrics.py              SQLite log of builds, escalations and deliveries
 tests/
   conftest.py             `forge` fixture: a real server on a free port
-  test_forge.py           git over HTTP, keys/ids, merges, pages, seeding
+  test_forge.py           git over HTTP, keys/ids, merges, pages
   test_zuul_contract.py   Zuul's own GitlabAPIClient + webhook parser vs git-stream
   test_retry.py           retry/escalation with a fake Zuul builds API
+  test_message_log.py     the message log and GET /api/stream/messages
+  test_mr_data.py         data on MRs and pushes, and where jobs read it
+  test_placeholder_projects.py  projects made on first use; adopted repos
+  test_files_refused.py   "files" is a 400, the seed setting is gone
   test_callbacks.py       callback_url: validation, outcomes, failures, migration
   test_config.py          config file / env / CLI precedence and errors
   test_metrics.py         the metrics store and its endpoint
@@ -465,8 +469,7 @@ worked; `main` was free because the original checkout was detached.
   in a bare repo uses `--index-info` with mode 0 (`repos.py`).
 - Merges use `git merge-tree --write-tree` (git >= 2.38).
 - Don't run Python (e.g. `py_compile`) inside `devenv/repos/`: it leaves
-  `__pycache__`, which the seeder would have committed.  Seeding now
-  skips `__pycache__` and reads files as bytes.
+  `__pycache__`, which would be committed into the demo's config repository.
 - `podman compose up --build` did not rebuild the changed git-stream
   image; `deploy.sh` builds it explicitly and force-recreates the
   `git-stream` and `demo-ui` containers.

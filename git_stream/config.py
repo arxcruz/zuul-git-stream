@@ -7,7 +7,6 @@ The config file is TOML, by default /etc/git-stream/git-stream.toml:
   listen = "0.0.0.0:8090"
   base_url = "http://git-stream:8090"   # how Zuul reaches git-stream
   data = "/srv/git-stream"              # repos/ + state.db (forge) + metrics.db
-  seed = "/repos"                       # create projects from these dirs
   insecure = false                      # true: with no tokens, accept any
                                         # API token and an open stream
                                         # (demos only; never in production)
@@ -60,7 +59,6 @@ SCHEMA = {
         'listen': ('0.0.0.0:8090', str, 'GIT_STREAM_LISTEN'),
         'base_url': (None, str, 'GIT_STREAM_BASE_URL'),
         'data': ('/srv/git-stream', str, 'GIT_STREAM_DATA'),
-        'seed': (None, str, 'GIT_STREAM_SEED'),
         'debug': (False, bool, 'GIT_STREAM_DEBUG'),
         # Without it, no [api_tokens] means REST writes are refused and no
         # [stream] tokens means POST /api/stream is refused.

@@ -96,16 +96,14 @@ def test_an_unknown_version_has_no_data(forge):
 
 
 def test_an_mr_without_data_has_none_to_read(forge):
-    forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'T',
-                'files': {'a': 'b'}})
+    forge.forge.open_mr('bundles', 'T', {'a': 'b'}, 'me')
     assert missing(forge, '/api/v4/projects/bundles/merge_requests/1/data'
                    ) == 404
 
 
 def test_a_files_only_update_keeps_the_data(forge):
     open_mr(forge, data={'v': 1})
-    new = forge.send({'action': 'update_mr', 'project': 'bundles',
-                      'mr': 'b-1', 'files': {'x': '1'}})
+    new = forge.forge.update_mr('bundles', 'b-1', 'me', files={'x': '1'})
     assert mr_data(forge, 1)['sha'] == new['sha']
     assert mr_data(forge, 1)['data'] == {'v': 1}
 
@@ -142,9 +140,9 @@ def test_a_push_to_another_branch_is_not_the_current_data(forge):
     assert missing(forge, '/api/v4/projects/bundles/data') == 404
 
 
-def test_a_push_needs_files_or_data(forge):
+def test_a_push_needs_data(forge):
     code, message = rejected(forge, {'action': 'push', 'project': 'bundles'})
-    assert code == 400 and 'files' in message and 'data' in message
+    assert code == 400 and 'data' in message
 
 
 @pytest.mark.parametrize('data', [[1], 'x', 5, True])

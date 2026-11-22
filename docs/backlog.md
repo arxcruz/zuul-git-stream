@@ -70,8 +70,8 @@ implement it first, and treat a failing test there as possibly a test bug.
 - [S3] Sync the docs with each fix, as `AGENTS.md` requires: README, the
   `git_stream/config.py` docstring, `devenv/git-stream.toml`,
   `docs/security.md`, `docs/zuul-contract.md`.
-- [S3] `main()` itself is still untested glue (ordering: seeding happens before the
-  webhook sender starts; the retry policy observes the forge's webhooks).
+- [S3] `main()` itself is still untested glue (the retry policy observes the
+  forge's webhooks).
   Everything it builds goes through the `build_*` functions in
   `git_stream/__main__.py`.
 - [S3] `GIT_STREAM_GIT_TOKENS` is read by `config.load` but there is no `git`
@@ -80,8 +80,6 @@ implement it first, and treat a failing test there as possibly a test bug.
 - [S3] Stale statements: the comment in `git_stream/repos.py` (`Repo.create`) says
   git-stream "enforces the git token"; it does not.  Re-read `docs/security.md`
   ("Done", "Planned") against the code once the items above land.
-- [S3] Starting with an invalid project directory in the seed directory ends in a
-  traceback; it should be a plain message that says what to do.
 
 ## 3. Audit findings with no test or spec yet
 

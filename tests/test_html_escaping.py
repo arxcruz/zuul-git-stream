@@ -66,7 +66,7 @@ def assert_escaped(found, payload, visible_on):
 
 def open_mr(forge, **kw):
     msg = {'action': 'open_mr', 'project': 'bundles', 'key': 'b-1',
-           'title': 'Bundle b-1', 'files': {'bundle.yaml': 'id: b-1\n'}}
+           'title': 'Bundle b-1', 'data': {'bundle.yaml': 'id: b-1\n'}}
     msg.update(kw)
     return forge.send(msg)
 
@@ -131,7 +131,8 @@ def test_labels_are_escaped(forge, payload):
 @pytest.mark.parametrize('payload', TEXTS)
 def test_changed_file_names_are_escaped(forge, payload):
     # The "Changes" box shows `git diff --name-status`.
-    open_mr(forge, files={payload: 'x\n'})
+    open_mr(forge)  # a file name needs real content: no message has one
+    forge.forge.update_mr('bundles', 'b-1', 'me', files={payload: 'x\n'})
     assert_escaped(pages(forge), payload, [MR])
 
 
@@ -139,8 +140,7 @@ def test_changed_file_names_are_escaped(forge, payload):
 
 @pytest.mark.parametrize('payload', NAMES)
 def test_a_project_name_is_escaped(forge, payload):
-    forge.send({'action': 'create_project', 'project': payload,
-                'files': {'README.md': 'x\n'}})
+    forge.send({'action': 'create_project', 'project': payload})
     open_mr(forge, project=payload)
     found = pages(forge, project=payload)
     assert_escaped(found, payload, ['/', '/' + payload,
@@ -150,7 +150,7 @@ def test_a_project_name_is_escaped(forge, payload):
 @pytest.mark.parametrize('payload', NAMES)
 def test_a_branch_name_is_escaped(forge, payload):
     forge.send({'action': 'push', 'project': 'bundles', 'branch': payload,
-                'files': {'a.txt': 'x\n'}})
+                'data': {'a.txt': 'x\n'}})
     open_mr(forge, target_branch=payload)
     assert_escaped(pages(forge), payload, ['/bundles', MR])
 
@@ -227,8 +227,7 @@ def test_a_callback_status_from_the_receiver_is_escaped(tmp_path, payload):
     # "failed: <cause>" is the receiver's own status line.  No page shows
     # it today; this keeps it that way, or escaped, if one ever does.
     forge = Running(tmp_path / 'data', report_users=['zuul'])
-    forge.send({'action': 'create_project', 'project': 'bundles',
-                'files': {'README.md': 'bundles\n'}})
+    forge.send({'action': 'create_project', 'project': 'bundles'})
     r = Receiver(status=500, reason=payload.replace(' ', '_'))
     try:
         open_mr(forge, callback_url=r.url)
@@ -272,8 +271,7 @@ def test_an_unknown_path_is_not_echoed(forge, payload):
 
 @pytest.mark.parametrize('payload', TEXTS)
 def test_a_raw_file_is_served_as_plain_text(forge, payload):
-    forge.send({'action': 'push', 'project': 'bundles',
-                'files': {'page.html': payload}})
+    forge.forge.push('bundles', {'page.html': payload}, None, 'me')
     status, headers, body = fetch(
         forge, '/api/v4/projects/bundles/repository/files/page.html/raw'
         '?ref=master')

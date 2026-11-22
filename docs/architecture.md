@@ -134,7 +134,7 @@ Unknown sections/options and bad types are errors.
 
 ### `__main__.py`: wiring
 Parses CLI, loads config, builds `WebhookSender`, `Forge` (with an emit
-fan-out list), optional `RetryPolicy`, seeds projects from `seed`, and
+fan-out list), optional `RetryPolicy`, and
 serves forever.
 
 ## Flows

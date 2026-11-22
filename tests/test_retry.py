@@ -103,7 +103,7 @@ def notes(forge, iid):
 
 def open_bundle(forge, **kw):
     msg = {'action': 'open_mr', 'project': 'bundles', 'key': 'b-1',
-           'title': 'Bundle b-1', 'files': {'bundle.yaml': 'id: b-1\n'}}
+           'title': 'Bundle b-1', 'data': {'bundle.yaml': 'id: b-1\n'}}
     msg.update(kw)
     return forge.send(msg)
 
@@ -336,7 +336,7 @@ def test_a_lookup_for_an_outdated_version_gives_up_quietly(
     report_later(forge, running(lookup_backoff=0.3), mr['iid'])
     assert wait_for(lambda: len(zuul.queries) >= 1)
     forge.send({'action': 'update_mr', 'project': 'bundles', 'mr': 'b-1',
-                'files': {'bundle.yaml': 'id: b-1\nv: 2\n'}})  # new version
+                'data': {'bundle.yaml': 'id: b-1\nv: 2\n'}})  # new version
     time.sleep(1.5)  # long enough for every remaining attempt
     assert forge.forge.escalations() == []
     assert notes(forge, mr['iid']) == []

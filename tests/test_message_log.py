@@ -29,7 +29,7 @@ def log(forge, token=None, **query):
 def open_mr(forge, key, **extra):
     return forge.send(dict({'action': 'open_mr', 'project': 'bundles',
                             'title': 'T', 'key': key,
-                            'files': {'a': key}}, **extra))
+                            'data': {'a': key}}, **extra))
 
 
 def refused(forge, msg, token=None):
