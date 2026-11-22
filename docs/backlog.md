@@ -196,6 +196,10 @@ section 1.
   token/user maps; `server.py` imports the private `stream._labels`; status
   and message conventions differ (`'404 Project Not Found'` against
   `'invalid project name'`, double approval is 401).
+- [S3] The message log (`message` table in `state.db`, `git_stream/forge.py`)
+  is never trimmed and has no UI or read token of its own; it grows with every
+  message.  Needs a retention setting (age or count), a page, and probably a
+  separate read token (`docs/specs/message-only-streams.md`, out of scope).
 - [S3] The demo UI (`devenv/demo-ui/app.py`, 357 lines) has no tests.
 - [S3] Missing docs: operations (backup, restore, upgrade, migration, data
   retention), a changelog, a sender-side spec for `/api/stream` (a schema or OpenAPI

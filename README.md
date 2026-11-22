@@ -216,6 +216,12 @@ Callbacks of one merge request can arrive out of order; use `time`.
 - **Webhooks** to every configured URL, in order, retried until accepted,
   with the `X-Gitlab-Token` header.  Recent deliveries are at
   `GET /api/stream/deliveries`.
+- **Message log** in `state.db`: every message sent to `POST /api/stream` is
+  recorded with its sender, action, project, key, time, body (up to 16 KiB)
+  and outcome (`applied`, `duplicate`, `refused`, `rejected` or `error`).
+  `GET /api/stream/messages` (with a stream token) lists it newest first;
+  filter with `project`, `key`, `action`, `outcome`, `since` and `until`,
+  page with `limit` (at most 200) and `before` (the `next` of the last page).
 - **Web pages** at `/`, `/escalations`, `/metrics` and
   `/<project>/merge_requests/<iid>`.
 - **Metrics** in a SQLite database (opt-in, `[metrics] path`): one row per

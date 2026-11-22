@@ -73,6 +73,20 @@ says only `internal error`; the details are in the log.  What is not covered
 yet (request-line and header trickling, the `git http-backend` subprocess) is
 in `docs/backlog.md`.
 
+## The message log: `GET /api/stream/messages`
+
+Every `POST /api/stream` message is stored in `state.db` (table `message`,
+append-only, never rewritten by the state mirror) with its sender, action,
+project, key, time, outcome and body.  The body can carry a `callback_url` or
+other sender data, so unlike the other stream GETs the endpoint needs a
+stream token (or an open stream in insecure mode); any valid token reads every
+sender's messages.  The row is written as `received` before anything acts on
+the message and given its outcome after, and a failing log is a warning, never
+a failed message.  Bodies over 16 KiB are logged as
+`{"truncated": true, "size": N}`; a page is at most 200 rows.  The log is not
+trimmed: retention is in `docs/backlog.md`.  Without `sqlite3` there is no log
+and the endpoint answers 501.  Tested in `tests/test_message_log.py`.
+
 ## Callbacks: git-stream POSTs to a URL the sender chooses
 
 `open_mr` may carry a `callback_url`, and git-stream then POSTs the outcome

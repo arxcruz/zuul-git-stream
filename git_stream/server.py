@@ -5,7 +5,8 @@
   /api/stream                 POST stream messages (see stream.py)
   /api/stream/deliveries      recent webhook deliveries
   /api/stream/escalations     merge requests escalated by the retry policy
-  /, /escalations, /<project>, /<project>/merge_requests/<iid>
+  /api/stream/messages        the log of every stream message (stream token)
+  /,/escalations, /<project>, /<project>/merge_requests/<iid>
                               small web pages to look at the forge
   /health
 """
@@ -43,6 +44,9 @@ BODY_TIMEOUT = 120
 # with a 503 that is written within REFUSAL_TIMEOUT seconds, so the accept
 # loop never waits on a client.
 MAX_CONNECTIONS = 64
+# GET /api/stream/messages pages: the default and the largest page.
+MESSAGE_PAGE_DEFAULT = 100
+MESSAGE_PAGE_MAX = 200
 REFUSAL_TIMEOUT = 1
 _BUSY = b'server busy: too many connections, retry shortly\n'
 REFUSAL = (b'HTTP/1.1 503 Service Unavailable\r\n'
@@ -405,13 +409,16 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                 params = self._params(query)
                 return self._json(self.metrics.summary(
                     params.get('project'), _days(params)))
+            if path == '/api/stream/messages' and self.command == 'GET':
+                # Bodies may carry callback URLs: same token as the stream.
+                if self._stream_user() is None:
+                    return self._unauthorized_stream()
+                return self._json(self._messages(self._params(query)))
             if path != '/api/stream' or self.command != 'POST':
                 return self._error(404, '404 Not Found')
             sender = self._stream_user()
             if sender is None:
-                if not self.forge.stream_tokens:
-                    return self._error(401, NO_STREAM_TOKENS)
-                return self._error(401, '401 Unauthorized')
+                return self._unauthorized_stream()
             try:
                 msgs = json.loads(self._body() or b'null')
             except ValueError:
@@ -425,6 +432,33 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                         results.append({'error': str(e)})
                 return self._json(results)
             return self._json(stream.apply(self.forge, msgs, sender))
+
+        def _unauthorized_stream(self):
+            if not self.forge.stream_tokens:
+                return self._error(401, NO_STREAM_TOKENS)
+            return self._error(401, '401 Unauthorized')
+
+        def _messages(self, params):
+            """GET /api/stream/messages: the logged messages, newest first.
+
+            Filters: project, key, action, outcome, since, until (ISO times);
+            paging: limit (at most MESSAGE_PAGE_MAX) and before (a message id,
+            the "next" of the previous page).
+            """
+            filters = {}
+            for name in ('project', 'key', 'action', 'outcome', 'since',
+                         'until'):
+                if name in params:
+                    if len(params[name]) > 200:
+                        raise ForgeError('%s is too long' % name)
+                    filters[name] = params[name]
+            limit = min(_number(params.get('limit', MESSAGE_PAGE_DEFAULT),
+                                'limit'), MESSAGE_PAGE_MAX)
+            before = (_number(params['before'], 'before')
+                      if 'before' in params else None)
+            found = self.forge.messages(filters, limit, before)
+            return {'messages': found,
+                    'next': found[-1]['id'] if len(found) == limit else None}
 
         # -- git over HTTP ---------------------------------------------------
 

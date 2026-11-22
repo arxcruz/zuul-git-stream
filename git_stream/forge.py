@@ -32,6 +32,10 @@ log = logging.getLogger('git_stream.forge')
 # How many processed message ids to remember for de-duplication.
 SEEN_IDS = 1000
 
+# The message log keeps a message's body up to this many bytes of JSON; a
+# larger one is logged as {"truncated": true, "size": N}.
+MESSAGE_BODY_MAX = 16384
+
 # The in-memory shape a store must present.  A project is a plain dict
 # (name, id, default_branch, description, created_at, next_iid, keys, mrs);
 # a merge request is a plain dict; a note is a plain dict.
@@ -94,6 +98,12 @@ class SqliteStore:
       created_at TEXT);
     CREATE TABLE IF NOT EXISTS seen (id INTEGER PRIMARY KEY, message_id TEXT);
     CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER);
+    -- The message log is append-only: save() never touches it.
+    CREATE TABLE IF NOT EXISTS message (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT, sender TEXT,
+      action TEXT, project TEXT, key TEXT, message_id TEXT, outcome TEXT,
+      status INTEGER, detail TEXT, body TEXT);
+    CREATE INDEX IF NOT EXISTS message_project ON message(project, id);
     '''
 
     def __init__(self, path):
@@ -115,6 +125,53 @@ class SqliteStore:
 
     def close(self):
         self.conn.close()
+
+    # -- the message log (append-only, outside the state mirror) ------------
+
+    def add_message(self, row):
+        """Insert a received message; return its row id."""
+        cur = self.conn.execute(
+            'INSERT INTO message(time, sender, action, project, key,'
+            ' message_id, outcome, body) VALUES (?,?,?,?,?,?,?,?)',
+            (row['time'], row['sender'], row['action'], row['project'],
+             row['key'], row['message_id'], 'received', row['body']))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def finish_message(self, row_id, outcome, status, detail):
+        self.conn.execute(
+            'UPDATE message SET outcome=?, status=?, detail=? WHERE id=?',
+            (outcome, status, detail, row_id))
+        self.conn.commit()
+
+    def messages(self, filters, limit, before):
+        """Logged messages, newest first, matching the equality filters
+        (project, key, action, outcome) and the time window (since, until),
+        with ids below before."""
+        where, args = [], []
+        for name in ('project', 'key', 'action', 'outcome'):
+            if filters.get(name) is not None:
+                where.append('%s = ?' % name)
+                args.append(filters[name])
+        if filters.get('since') is not None:
+            where.append('time >= ?')
+            args.append(filters['since'])
+        if filters.get('until') is not None:
+            where.append('time < ?')
+            args.append(filters['until'])
+        if before is not None:
+            where.append('id < ?')
+            args.append(before)
+        rows = self.conn.execute(
+            'SELECT * FROM message%s ORDER BY id DESC LIMIT ?' % (
+                ' WHERE ' + ' AND '.join(where) if where else ''),
+            args + [limit]).fetchall()
+        found = []
+        for r in rows:
+            m = dict(r)
+            m['body'] = json.loads(m['body']) if m['body'] else None
+            found.append(m)
+        return found
 
     def load(self):
         """Build the in-memory view: {projects, keys, mrs, seen, counters}."""
@@ -866,6 +923,56 @@ class Forge:
                             mr['escalation'], state=mr['state'],
                             current=mr.get('escalated_sha') == mr['sha']))
             return sorted(found, key=lambda e: -e['time'])
+
+    # -- the message log ------------------------------------------------------
+
+    def record_message(self, sender, msg):
+        """Log a message as received, before anything acts on it.
+
+        Returns a handle for finish_message (None when there is no log: the
+        JSON fallback has none).  A failing log never fails the stream.
+        """
+        if not hasattr(self.store, 'add_message'):
+            return None
+        body = msg if isinstance(msg, dict) else {'message': msg}
+        text = json.dumps(body, default=str)
+        if len(text) > MESSAGE_BODY_MAX:
+            text = json.dumps({'truncated': True, 'size': len(text)})
+
+        def text_of(name):
+            value = body.get(name)
+            return value if isinstance(value, str) else (
+                None if value is None else str(value)[:200])
+        key = body.get('key') if body.get('key') is not None else body.get('mr')
+        row = {'time': now(), 'sender': sender, 'action': text_of('action'),
+               'project': text_of('project'),
+               'key': None if key is None else str(key)[:200],
+               'message_id': text_of('id'), 'body': text}
+        try:
+            with self.lock:
+                return self.store.add_message(row)
+        except sqlite3.Error:
+            log.exception('Could not log a stream message')
+            return None
+
+    def finish_message(self, handle, outcome, status, detail=None):
+        if handle is None:
+            return
+        try:
+            with self.lock:
+                self.store.finish_message(handle, outcome, status,
+                                          None if detail is None
+                                          else detail[:500])
+        except sqlite3.Error:
+            log.exception('Could not log the outcome of a stream message')
+
+    def messages(self, filters, limit=100, before=None):
+        """The logged messages, newest first (see SqliteStore.messages)."""
+        if not hasattr(self.store, 'messages'):
+            raise ForgeError('the message log needs the sqlite3 module, which '
+                             'this host does not have', 501)
+        with self.lock:
+            return self.store.messages(filters, limit, before)
 
     def seen(self, message_id):
         """Remember a message id; True if it was processed before."""

@@ -92,7 +92,29 @@ def _author(forge, msg, sender):
 
 
 def apply(forge, msg, sender):
-    """Apply one stream message, sent by sender, and return the result."""
+    """Apply one stream message, sent by sender, and return the result.
+
+    Every message is logged (forge.record_message) as received before
+    anything acts on it, then given its outcome: applied, duplicate, refused
+    (403), rejected (another 4xx) or error (a bug).  The log is written
+    first so it never lags behind what Zuul can see.
+    """
+    entry = forge.record_message(sender, msg)
+    try:
+        result = _apply(forge, msg, sender)
+    except ForgeError as e:
+        forge.finish_message(entry, 'refused' if e.status == 403
+                             else 'rejected', e.status, str(e))
+        raise
+    except Exception as e:
+        forge.finish_message(entry, 'error', 500, type(e).__name__)
+        raise
+    duplicate = isinstance(result, dict) and result.get('duplicate') is True
+    forge.finish_message(entry, 'duplicate' if duplicate else 'applied', 200)
+    return result
+
+
+def _apply(forge, msg, sender):
     if not isinstance(msg, dict):
         raise ForgeError('a message must be a JSON object')
     action = msg.get('action')
