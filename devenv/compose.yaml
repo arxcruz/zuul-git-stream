@@ -115,7 +115,9 @@ services:
   # ci-tool's state (the last thing it does).
   scheduler:
     <<: *zuul
-    depends_on: [zk, mysql, git-stream, gitserver, seed]
+    # Not `seed`: it exits when done, and podman will not start a container
+    # whose dependency is not running.  The command below waits for its result.
+    depends_on: [zk, mysql, git-stream, gitserver]
     command:
       - wait-for.sh
       - zk:2281
