@@ -21,8 +21,9 @@ what git-stream saw*, not a source of truth (Zuul is the source of truth);
 a new version of a merge request starts its rows fresh, like the retry
 counter does.
 
-Standard library only.  One process (single writer: the retry policy;
-readers are the HTTP handlers), so no locking or WAL is needed.
+Standard library only.  One process, one writer connection under a lock.
+The counting endpoints read through their own read-only connection (the
+database is in WAL mode), so a long scan never holds up a write.
 """
 
 import datetime
@@ -30,6 +31,7 @@ import json
 import math
 import sqlite3
 import threading
+import urllib.parse
 
 from git_stream import aggregate
 
@@ -126,6 +128,7 @@ class Metrics:
         self.lock = threading.Lock()
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute('PRAGMA journal_mode=WAL')
         self.conn.executescript(SCHEMA)
         self.migrate()
         self.conn.commit()
@@ -262,14 +265,19 @@ class Metrics:
     def aggregate(self, query):
         """Count runs, escalations or deliveries as a checked query asks
         (aggregate.parse)."""
-        with self.lock:
+        reader = sqlite3.connect('file:%s?mode=ro' % urllib.parse.quote(
+            self.path), uri=True)
+        try:
+            reader.row_factory = sqlite3.Row
             if query.kind == 'runs':
-                return aggregate.aggregate(self.conn, query, RUN_SPEC)
+                return aggregate.aggregate(reader, query, RUN_SPEC)
             if query.kind == 'deliveries':
-                return aggregate.aggregate(self.conn, query, DELIVERY_SPEC)
-            return self._aggregate_escalations(query)
+                return aggregate.aggregate(reader, query, DELIVERY_SPEC)
+            return self._aggregate_escalations(reader, query)
+        finally:
+            reader.close()
 
-    def _aggregate_escalations(self, query):
+    def _aggregate_escalations(self, conn, query):
         """Escalations are few and each lists several failing jobs, so they
         are counted here rather than in SQL."""
         where, args = [], []
@@ -287,7 +295,7 @@ class Metrics:
         if query.hi is not None:
             where.append('time < ?')
             args.append(query.hi)
-        rows = self.conn.execute(
+        rows = conn.execute(
             'SELECT project, mr, key, time, failing_json FROM escalation%s'
             % (' WHERE ' + ' AND '.join(where) if where else ''),
             args).fetchall()

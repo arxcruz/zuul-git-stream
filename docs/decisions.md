@@ -298,9 +298,9 @@ Spec: `docs/specs/metrics-view.md`.  Choices:
   nothing.  A run is now stored once per build uuid and the times are read;
   old databases are de-duplicated when opened and keep NULL times.
 - **Chart.js from a CDN, pinned.**  Chosen over hand-written SVG for the
-  polish the page is for; the cost is that the page needs internet and the
-  Subresource Integrity hash is still to add (the hash needs a download; a
-  pending test records it).  Without the library the page shows tables.
+  polish the page is for; the cost is that the page needs internet; the
+  script carries a Subresource Integrity hash, so a version change means a
+  new hash.  Without the library the page shows tables.
 - **The page's logic is plain functions under node.**  `metrics.js` keeps the
   filters-in-the-URL, query building and error text free of the browser so
   tests can run them; those tests skip when `node` is missing.

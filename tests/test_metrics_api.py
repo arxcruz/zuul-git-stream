@@ -366,6 +366,21 @@ def test_counting_messages_does_not_hold_the_forge_lock(messages):
     assert out == [200]
 
 
+def test_counting_runs_does_not_hold_the_metrics_lock(make_api):
+    """A scan of a big table must not stall the webhook or retry threads."""
+    import threading
+    api = make_api()
+    fill(api.metrics)
+    out = []
+    with api.metrics.lock:  # a writer in the middle of its work
+        t = threading.Thread(target=lambda: out.append(
+            [api.get(k)[0] for k in ('runs', 'escalations', 'deliveries')]))
+        t.start()
+        t.join(5)
+        assert not t.is_alive(), 'the count waited for the metrics lock'
+    assert out == [[200, 200, 200]]
+
+
 def test_without_sqlite_the_messages_aggregate_answers_501(make_api,
                                                            monkeypatch):
     import os
