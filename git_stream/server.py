@@ -6,6 +6,8 @@
   /api/stream/deliveries      recent webhook deliveries
   /api/stream/escalations     merge requests escalated by the retry policy
   /api/stream/messages        the log of every stream message (stream token)
+  /api/stream/metrics/<kind>  counts for charts: runs, escalations,
+                              deliveries (metrics on), messages (stream token)
   /, /escalations, /<project>, /<project>/merge_requests/<iid>
                               small web pages to look at the forge
   /health
@@ -23,7 +25,7 @@ import time
 import urllib.parse
 import http.server
 
-from git_stream import stream
+from git_stream import aggregate, stream
 from git_stream.forge import ForgeError
 
 log = logging.getLogger('git_stream.server')
@@ -271,6 +273,10 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                 m = GIT_RE.match(path)
                 if m:
                     return self._git(m.group('repo'), path, url.query)
+                if path.startswith('/api/stream/metrics/'):
+                    # Outside the forge's lock: counting a big log must not
+                    # stall Zuul's calls or the webhooks.
+                    return self._counts(path, url.query)
                 # The forge's lock is re-entrant; holding it here keeps
                 # readers from seeing the state while it changes.
                 with self.forge.lock:
@@ -438,6 +444,30 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                         results.append({'error': str(e)})
                 return self._json(results)
             return self._json(stream.apply(self.forge, msgs, sender))
+
+        def _counts(self, path, query):
+            kind = path[len('/api/stream/metrics/'):]
+            if kind not in aggregate.KINDS or self.command != 'GET':
+                return self._error(404, '404 Not Found')
+            return self._json(self._aggregate(kind, query))
+
+        def _aggregate(self, kind, query):
+            """GET /api/stream/metrics/<kind>: counts for the metrics charts
+            (aggregate.py).  Runs, escalations and deliveries are as open as
+            the other metrics reads and need metrics turned on; the stream
+            messages are as private as the message log."""
+            if kind == 'messages':
+                if self._stream_user() is None:
+                    return self._unauthorized_stream()
+            elif self.metrics is None:
+                raise ForgeError('metrics not enabled', 404)
+            try:
+                checked = aggregate.parse(kind, self._params(query))
+            except aggregate.QueryError as e:
+                raise ForgeError(str(e)) from None
+            if kind == 'messages':
+                return self.forge.aggregate_messages(checked)
+            return self.metrics.aggregate(checked)
 
         def _unauthorized_stream(self):
             if not self.forge.stream_tokens:

@@ -89,6 +89,40 @@ the same holds for a request refused before it is read (401, 413, 408).  Bodies 
 trimmed: retention is in `docs/backlog.md`.  Without `sqlite3` there is no log
 and the endpoint answers 501.  Tested in `tests/test_message_log.py`.
 
+## The metrics counting endpoints
+
+`GET /api/stream/metrics/{runs,escalations,deliveries,messages}` (for the
+demo UI's charts, see `docs/specs/metrics-view.md`) count what git-stream
+recorded.  Access follows what is counted:
+
+- `runs`, `escalations` and `deliveries` are anonymous, like the existing
+  `GET /api/stream/metrics`, and exist only with `[metrics] path` set (404
+  `metrics not enabled` otherwise).  They return job, project, bundle and
+  pipeline names and counts.  They never return a webhook URL (it may hold a
+  secret: a `url` parameter is a 400) or a log link.
+- `messages` needs a stream token, like `GET /api/stream/messages`, because
+  senders and actions are who did what.  It returns counts only: never a
+  message body or id.
+- Every query is checked before it reaches SQL: only fixed groups, filter
+  names and `hour`/`day` buckets are accepted (anything else is a 400 that
+  lists the valid ones), a value is at most 200 characters, a bucketed query
+  covers at most 500 buckets, and an answer has at most 200 groups (2000
+  rows when bucketed) and says `truncated`.  A filter value is only ever a
+  bound parameter.
+- The demo UI proxies them at `/api/metrics/<kind>` (a whitelist of the four
+  kinds, a query of at most 2000 characters), passes git-stream's errors
+  through, and adds its `STREAM_TOKEN` to the messages query only, when set (so anyone
+  who can reach the demo UI can read message counts then; compose does not pass
+  `STREAM_TOKEN` to the container, the demo stream being open); the
+  token never reaches the browser.  The page escapes every value it shows.
+- The Chart.js script is loaded from cdnjs.cloudflare.com, pinned to 4.4.1
+  with a Subresource Integrity hash (sha384), so the demo's metrics page
+  needs internet access and refuses a changed file.  Changing the version
+  means recomputing the hash.
+- Not done (backlog): a read token separate from the stream token.
+
+Tested in `tests/test_metrics_api.py` and `tests/test_metrics_view.py`.
+
 ## Data on merge requests and pushes
 
 Senders cannot put files in git-stream: `files` in any message is a 400, so

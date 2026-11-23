@@ -102,6 +102,15 @@ class RetryPolicy(threading.Thread):
             return
         self.escalate(project, iid, sha, failing, max_attempts)
 
+    def _key(self, project, iid):
+        """The merge request's key (the bundle id), or None."""
+        with self.forge.lock:
+            try:
+                return self.forge.mr(self.forge.project(project), iid).get(
+                    'key')
+            except ForgeError:
+                return None
+
     def results(self, project, iid, sha):
         """Per job: latest result, failure count and latest build."""
         query = urllib.parse.urlencode({
@@ -112,7 +121,8 @@ class RetryPolicy(threading.Thread):
             builds = json.load(r)
         if self.metrics is not None:
             self.metrics.record_results(project, iid, sha, builds,
-                                        self.zuul_api)
+                                        self.zuul_api,
+                                        key=self._key(project, iid))
         results = {}
         for build in builds:  # newest first
             if build['result'] in NOT_A_VERDICT:

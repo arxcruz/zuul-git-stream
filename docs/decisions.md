@@ -96,8 +96,9 @@ state in `state.db` (projects, MRs, notes).  It is a **log of what
 git-stream saw**, not a
 source of truth (Zuul is the source of truth); it exists to answer
 "what failed, how often, over time" and to survive a restart without
-asking Zuul.  Opt-in: no `[metrics] path` = off.  Stdlib `sqlite3`, single
-writer (the retry policy), so no locking.
+asking Zuul.  Opt-in: no `[metrics] path` = off.  Stdlib `sqlite3`, one
+writer (the retry policy) under a lock; the counting endpoints read through
+their own connection (WAL, decision 17).
 
 ## 12. Forge state in SQLite, with a JSON fallback (Nov 18)
 
@@ -283,3 +284,28 @@ repositories elsewhere, and git-stream should only trigger jobs.  So:
   commit, tests that need file content); git-stream still needs `git`; the
   demo no longer shows Zuul speculatively merging real files from `ci-tool`,
   only the ordering and the data lookup of `Depends-On`.
+
+## 17. The metrics view counts in git-stream and draws in the demo UI (Nov 23)
+
+Spec: `docs/specs/metrics-view.md`.  Choices:
+
+- **Counting endpoints, not raw rows.**  `GET /api/stream/metrics/<kind>`
+  returns counts grouped by one field and bucketed by hour or day, so a page
+  never downloads the log and the checks (fixed groups, bounded values,
+  at most 500 buckets) are in one place (`aggregate.py`).
+- **The data was wrong first.**  A live demo had 43 run rows for 17 builds
+  (every Zuul report re-logged the whole version) and no times at all (Zuul
+  sends ISO strings and a duration; only numbers were read), so `?days=` matched
+  nothing.  A run is now stored once per build uuid and the times are read;
+  old databases are de-duplicated when opened and keep NULL times.
+- **Chart.js from a CDN, pinned.**  Chosen over hand-written SVG for the
+  polish the page is for; the cost is that the page needs internet; the
+  script carries a Subresource Integrity hash, so a version change means a
+  new hash.  Without the library the page shows tables.
+- **The page's logic is plain functions under node.**  `metrics.js` keeps the
+  filters-in-the-URL, query building and error text free of the browser so
+  tests can run them; those tests fail, with install instructions, when
+  `node` is missing (like the contract tests without Zuul), so the gate never
+  passes without them.
+- **Messages are charted too**, through the same shape of endpoint but behind
+  the stream token, and never with a body.

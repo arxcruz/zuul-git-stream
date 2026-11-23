@@ -25,7 +25,7 @@ import time
 import urllib.parse
 import zlib
 
-from git_stream import callbacks
+from git_stream import aggregate, callbacks
 from git_stream.repos import Repo, ZERO_SHA, valid_branch, valid_tag
 
 log = logging.getLogger('git_stream.forge')
@@ -36,6 +36,22 @@ SEEN_IDS = 1000
 # The message log keeps a message's body up to this many bytes of JSON; a
 # larger one is logged as {"truncated": true, "size": N}.
 MESSAGE_BODY_MAX = 16384
+
+def _equals(value):
+    return [value]
+
+
+# How the message log is counted (see aggregate.py): the time is the whole
+# seconds of the ISO time the log keeps, and a message's body is never read.
+MESSAGE_SPEC = {
+    'table': 'message',
+    'time': "CAST(strftime('%s', substr(time, 1, 19)) AS INTEGER)",
+    'groups': {'action': 'action', 'sender': 'sender', 'outcome': 'outcome',
+               'project': 'project'},
+    'filters': {name: ('%s = ?' % name, _equals) for name in (
+        'project', 'action', 'sender', 'outcome')},
+    'extra': [],
+}
 
 # The in-memory shape a store must present.  A project is a plain dict
 # (name, id, default_branch, description, created_at, next_iid, keys, mrs);
@@ -76,8 +92,8 @@ class SqliteStore:
 
     The in-memory view (built in load) is authoritative while the process
     runs; the database is a persistence mirror written on save().  One
-    writer (the forge, under its lock) and single-process readers make
-    locking and WAL unnecessary.
+    writer (the forge, under its lock); the counting endpoints read through
+    their own connection, which WAL lets run beside the writer.
     """
 
     SCHEMA = '''
@@ -121,6 +137,8 @@ class SqliteStore:
         self.path = path
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        # WAL: a long read (the counting endpoints) does not block a write.
+        self.conn.execute('PRAGMA journal_mode=WAL')
         self.conn.executescript(self.SCHEMA)
         self.migrate()
         self.conn.commit()
@@ -200,6 +218,17 @@ class SqliteStore:
         return self.conn.execute(
             'SELECT COUNT(*) FROM project_data WHERE project_id=?',
             (project_id,)).fetchone()[0]
+
+    def aggregate_messages(self, query):
+        # Its own read-only connection, so a scan of a large log needs no
+        # forge lock (Forge.aggregate_messages) and blocks no writer (WAL).
+        reader = sqlite3.connect('file:%s?mode=ro' % urllib.parse.quote(
+            self.path), uri=True)
+        try:
+            reader.row_factory = sqlite3.Row
+            return aggregate.aggregate(reader, query, MESSAGE_SPEC)
+        finally:
+            reader.close()
 
     def messages(self, filters, limit, before):
         """Logged messages, newest first, matching the equality filters
@@ -1139,6 +1168,13 @@ class Forge:
                                           else detail[:500])
         except sqlite3.Error:
             log.exception('Could not log the outcome of a stream message')
+
+    def aggregate_messages(self, query):
+        """Count the logged messages as a checked query asks (aggregate.py)."""
+        if not hasattr(self.store, 'aggregate_messages'):
+            raise ForgeError('the message log needs the sqlite3 module, which '
+                             'this host does not have', 501)
+        return self.store.aggregate_messages(query)
 
     def messages(self, filters, limit=100, before=None):
         """The logged messages, newest first (see SqliteStore.messages)."""

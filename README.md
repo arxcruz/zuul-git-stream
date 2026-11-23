@@ -243,6 +243,15 @@ Callbacks of one merge request can arrive out of order; use `time`.
   /api/stream/metrics` returns per-job run/pass/fail counts; the `/metrics`
   page shows them.  It is a log of what git-stream saw, not a source of
   truth (Zuul is), and it is separate from the forge state in `state.db`.
+  A build is recorded once (by its Zuul uuid) with its start, end, duration,
+  pipeline and bundle key.  For charts there are counting endpoints, all
+  `GET`, grouped by one field (`group=`), bucketed by `hour` or `day`
+  (`bucket=`, at most 500 buckets) and filtered:
+  `/api/stream/metrics/runs` (project, job, result, pipeline, mr),
+  `/escalations` (project, job, mr), `/deliveries` (project, kind, action,
+  ok) and `/messages` (project, action, sender, outcome; needs a stream
+  token), each with `since` and `until` (epoch seconds or ISO 8601, UTC).
+  The demo UI draws them at `http://localhost:8080/metrics`.
 
 State is a JSON file next to bare repositories in the data directory.
 

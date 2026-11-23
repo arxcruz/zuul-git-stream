@@ -113,9 +113,27 @@ and proxies git-stream's and Zuul's APIs.
 | `GET /api/bundles` | MRs + per-job latest verdict + busy/approved/escalated |
 | `GET /api/ci-tool` | `broken_jobs` (ci-tool's current data) + fix MR |
 | `GET /api/status`, `/api/builds`, `/api/sent`, `/api/deliveries`, `/api/escalations` | Zuul status, builds, events sent, webhook deliveries, escalations |
-| `GET /api/metrics` | per-job run/pass/fail counts from git-stream's SQLite metrics store (`/metrics` page) |
+| `GET /api/metrics` | per-job run/pass/fail counts from git-stream's SQLite metrics store |
+| `GET /metrics` | the metrics page: charts and filters over builds, escalations, webhooks and messages (`metrics.html`, `metrics.js`) |
+| `GET /api/metrics/{runs,escalations,deliveries,messages}?...` | git-stream's counting endpoints (`/api/stream/metrics/<kind>`), proxied; errors pass through; `STREAM_TOKEN` (env) is added for messages |
 
 The page rewrites `http://git-stream:8090` links to the browser's host.
+
+### The metrics page (`/metrics`)
+
+Charts and filters over what git-stream recorded, in four sections: jobs
+(results, failure rate, runs over time, durations, pipelines), bundles (runs
+per bundle, escalations over time, escalated jobs), webhooks (deliveries over
+time, delivered or not, by kind) and messages (over time, by action, sender
+and outcome), with totals on top.  Filters: time range (quick or custom, UTC),
+project, job, result, pipeline, bundle, and the webhook and message fields;
+they are in the address, so a view can be shared, and the page refreshes every
+10 seconds.  It loads Chart.js from `cdnjs.cloudflare.com` (pinned to one
+version), so it needs internet access; without it the numbers show as tables.
+The metrics sections need `[metrics] path` (the demo has it); the message
+charts need a stream token if the stream is not open (set `STREAM_TOKEN` on
+the `demo-ui` container).  Builds recorded before the metrics fix have no
+times, so they count in totals but not in time charts.
 
 ## Scenario and expected results
 

@@ -1,3 +1,4 @@
+import http.server
 import json
 import threading
 import urllib.error
@@ -121,3 +122,191 @@ def test_config_metrics_defaults(tmp_path):
     s = config.load(environ={})
     assert s['metrics']['path'] == ''
     assert s['metrics']['build_url'] == ''
+
+
+# -- what a run records: once per build, with its times (metrics-view spec,
+#    scenarios 1, 2 and 8) -----------------------------------------------
+
+ZUUL_BUILD = {
+    # What Zuul's builds API really sends: ISO strings and a duration.
+    'job_name': 'bundle-api', 'result': 'SUCCESS', 'uuid': 'u1',
+    'pipeline': 'bundle-test', 'log_url': 'http://l/u1/',
+    'start_time': '2026-11-22T23:32:58', 'end_time': '2026-11-22T23:33:15',
+    'duration': 17.0}
+START = 1795390378.0  # 2026-11-22T23:32:58 UTC
+
+
+def runs(m):
+    return [dict(r) for r in m.conn.execute('SELECT * FROM run ORDER BY id')]
+
+
+def test_a_build_is_recorded_once(tmp_path):
+    m = Metrics(str(tmp_path / 'metrics.db'))
+    for _ in range(3):  # Zuul reports again for every retry of a version
+        m.record_results('bundles', 1, 'sha', [ZUUL_BUILD], 'http://z')
+    assert len(runs(m)) == 1
+    assert m.summary()['runs'] == 1
+    m.record_results('bundles', 1, 'sha',
+                     [dict(ZUUL_BUILD, uuid='u2')], 'http://z')
+    assert len(runs(m)) == 2
+    m.close()
+
+
+def test_builds_without_a_uuid_are_all_kept(tmp_path):
+    m = Metrics(str(tmp_path / 'metrics.db'))
+    build = {'job_name': 'a', 'result': 'SUCCESS'}
+    m.record_results('bundles', 1, 's', [build, build], 'http://z')
+    assert len(runs(m)) == 2
+    m.close()
+
+
+def test_a_database_with_duplicates_is_deduplicated_when_it_opens(tmp_path):
+    path = str(tmp_path / 'metrics.db')
+    first = Metrics(path)
+    first.close()
+    import sqlite3
+    db = sqlite3.connect(path)
+    db.execute('DROP INDEX IF EXISTS run_uuid')  # as an old version left it
+    for n in range(3):
+        db.execute("INSERT INTO run(project, mr, job, result, uuid)"
+                   " VALUES ('p', 1, 'a', 'SUCCESS', 'dup')")
+    db.execute("INSERT INTO run(project, mr, job, result, uuid)"
+               " VALUES ('p', 1, 'b', 'FAILURE', 'other')")
+    db.execute("INSERT INTO run(project, mr, job, result, uuid)"
+               " VALUES ('p', 1, 'c', 'FAILURE', NULL)")
+    db.execute("INSERT INTO run(project, mr, job, result, uuid)"
+               " VALUES ('p', 1, 'c', 'FAILURE', NULL)")
+    db.commit()
+    db.close()
+    again = Metrics(path)
+    got = sorted((r['uuid'] or '-', r['job']) for r in runs(again))
+    assert got == [('-', 'c'), ('-', 'c'), ('dup', 'a'), ('other', 'b')]
+    again.close()
+    Metrics(path).close()  # opening twice is harmless
+
+
+def test_times_come_from_zuuls_iso_strings(tmp_path):
+    m = Metrics(str(tmp_path / 'metrics.db'))
+    m.record_results('bundles', 1, 'sha', [ZUUL_BUILD], 'http://z')
+    [run] = runs(m)
+    assert run['started_at'] == START
+    assert run['finished_at'] == START + 17
+    assert run['elapsed_ms'] == 17000
+    m.close()
+
+
+def test_a_start_and_an_end_are_not_the_same_instant(tmp_path):
+    m = Metrics(str(tmp_path / 'metrics.db'))
+    m.record_results('bundles', 1, 'sha',
+                     [dict(ZUUL_BUILD, start_time=1000.0, end_time=1005.5)],
+                     'http://z')
+    [run] = runs(m)
+    assert (run['started_at'], run['finished_at']) == (1000.0, 1005.5)
+    assert run['elapsed_ms'] == 5500
+    m.close()
+
+
+def test_a_duration_alone_gives_the_elapsed_time(tmp_path):
+    m = Metrics(str(tmp_path / 'metrics.db'))
+    m.record_results('bundles', 1, 'sha',
+                     [{'job_name': 'a', 'result': 'SUCCESS', 'uuid': 'u',
+                       'duration': 4.25}], 'http://z')
+    [run] = runs(m)
+    assert run['elapsed_ms'] == 4250
+    assert run['finished_at'] is None
+    m.close()
+
+
+def test_a_build_without_usable_times_is_counted_without_them(tmp_path):
+    m = Metrics(str(tmp_path / 'metrics.db'))
+    m.record_results('bundles', 1, 'sha',
+                     [{'job_name': 'a', 'result': 'FAILURE', 'uuid': 'u1',
+                       'start_time': 'not a time', 'end_time': None,
+                       'duration': 'soon'}], 'http://z')
+    [run] = runs(m)
+    assert run['finished_at'] is None and run['elapsed_ms'] is None
+    assert m.summary()['runs'] == 1
+    m.close()
+
+
+def test_days_matches_runs_that_have_iso_times(tmp_path):
+    import datetime
+    m = Metrics(str(tmp_path / 'metrics.db'))
+    end = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    start = end - datetime.timedelta(seconds=30)
+    m.record_results('bundles', 1, 'sha', [dict(
+        ZUUL_BUILD, start_time=start.isoformat(timespec='seconds'),
+        end_time=end.isoformat(timespec='seconds'), duration=30.0)],
+        'http://z')
+    assert m.summary(days=1)['runs'] == 1
+    assert m.summary(days=-1)['runs'] == 0
+    m.close()
+
+
+def test_the_pipeline_and_the_bundle_key_are_recorded(tmp_path):
+    m = Metrics(str(tmp_path / 'metrics.db'))
+    m.record_results('bundles', 1, 'sha', [ZUUL_BUILD], 'http://z',
+                     key='b-1')
+    [run] = runs(m)
+    assert run['pipeline'] == 'bundle-test'
+    assert run['key'] == 'b-1'
+    m.close()
+
+
+def test_an_old_database_gains_the_new_columns_and_keeps_its_rows(tmp_path):
+    import sqlite3
+    path = str(tmp_path / 'old.db')
+    db = sqlite3.connect(path)
+    db.executescript('''
+    CREATE TABLE run (id INTEGER PRIMARY KEY, project TEXT, mr INTEGER,
+      change TEXT, patchset TEXT, job TEXT, result TEXT, uuid TEXT,
+      log_url TEXT, build_url TEXT, started_at REAL, finished_at REAL,
+      elapsed_ms REAL);
+    INSERT INTO run(project, mr, job, result, uuid)
+      VALUES ('p', 1, 'a', 'SUCCESS', 'u');
+    ''')
+    db.commit()
+    db.close()
+    m = Metrics(path)
+    [run] = runs(m)
+    assert run['job'] == 'a' and run['pipeline'] is None and run['key'] is None
+    m.record_results('p', 2, 's', [ZUUL_BUILD], 'http://z', key='k')
+    assert len(runs(m)) == 2
+    m.close()
+
+
+def test_the_retry_policy_passes_the_bundle_key(forge, tmp_path):
+    """results() logs the builds with the MR's key, so charts can say b-1."""
+    from git_stream.retry import RetryPolicy
+    forge.send({'action': 'open_mr', 'project': 'bundles', 'title': 'T',
+                'key': 'b-1', 'data': {'id': 'b-1'}})
+    seen = {}
+
+    class Spy:
+        def record_results(self, project, iid, sha, builds, prefix,
+                           key=None):
+            seen['key'] = key
+
+    class Zuul(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps([]).encode()
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    zuul = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Zuul)
+    threading.Thread(target=zuul.serve_forever, kwargs=FAST_POLL,
+                     daemon=True).start()
+    try:
+        policy = RetryPolicy(
+            forge.forge, 'http://127.0.0.1:%d' % zuul.server_address[1],
+            metrics=Spy())
+        policy.results('bundles', 1, 'sha')
+    finally:
+        zuul.shutdown()
+        zuul.server_close()
+    assert seen == {'key': 'b-1'}

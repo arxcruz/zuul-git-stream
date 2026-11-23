@@ -164,6 +164,7 @@ git_stream/               the service (stdlib only)
   retry.py                retry/escalation policy (talks to Zuul's builds API)
   callbacks.py            per-MR callback_url: POSTs the final outcome
   metrics.py              SQLite log of builds, escalations and deliveries
+  aggregate.py            counting for the metrics charts (query checks, SQL)
 tests/
   conftest.py             `forge` fixture: a real server on a free port
   test_forge.py           git over HTTP, keys/ids, merges, pages
@@ -177,6 +178,8 @@ tests/
   test_callbacks.py       callback_url: validation, outcomes, failures, migration
   test_config.py          config file / env / CLI precedence and errors
   test_metrics.py         the metrics store and its endpoint
+  test_metrics_api.py     the counting endpoints for the charts
+  test_metrics_view.py    the demo UI's metrics page (its JS runs under node)
   test_webhooks.py        webhook delivery: headers, order, failing receivers
   test_server_input.py    malformed requests are 4xx; receive-pack refusal
   test_git_read_only.py   git over HTTP is read-only however a push is spelled
@@ -216,6 +219,9 @@ docs/                     the documentation listed above
 ```
 
 ## Setting up and testing
+
+The metrics page's JavaScript tests need `node` on the PATH; they fail
+without it, like the contract tests without Zuul.
 
 The contract tests import Zuul, so it must be installed in the venv.  It
 does not need a checkout next to this repo: install it from git.
