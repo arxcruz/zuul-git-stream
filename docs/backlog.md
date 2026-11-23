@@ -54,14 +54,6 @@ implement it first, and treat a failing test there as possibly a test bug.
   need the default branch (push without `branch`, tag without `rev`, open_mr
   without `target_branch`) are 409 "project 'x' has an invalid default
   branch '-x'; recreate it"; everything else keeps working.
-- [S3] **metrics view SRI** (`tests/test_metrics_view.py`): the demo's metrics
-  page loads Chart.js from cdnjs pinned to an exact version, but without a
-  Subresource Integrity hash, because the hash needs the file and the session
-  that built the page could not reach the CDN.  Fix: download that exact file,
-  put `integrity="sha384-..."` and `crossorigin="anonymous"` on its
-  `<script>` tag in `devenv/demo-ui/metrics.html`
-  (`curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`), then
-  delete the line from `tests/pending.txt`.
 - [S2] **git read-only check** (`tests/test_git_read_only.py`, 9 inline
   `KNOWN_GAP` markers): `server.py:_git` refuses receive-pack by matching the
   literal text in the raw path and query, so a percent-encoded

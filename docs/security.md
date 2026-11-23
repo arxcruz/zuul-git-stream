@@ -113,9 +113,11 @@ recorded.  Access follows what is counted:
   kinds, a query of at most 2000 characters), passes git-stream's errors
   through, and adds its `STREAM_TOKEN` to the messages query when set; the
   token never reaches the browser.  The page escapes every value it shows.
-- Not done (backlog): a read token separate from the stream token, and the
-  Subresource Integrity hash for the Chart.js script the page loads from
-  cdnjs.cloudflare.com (so the demo's metrics page needs internet access).
+- The Chart.js script is loaded from cdnjs.cloudflare.com, pinned to 4.4.1
+  with a Subresource Integrity hash (sha384), so the demo's metrics page
+  needs internet access and refuses a changed file.  Changing the version
+  means recomputing the hash.
+- Not done (backlog): a read token separate from the stream token.
 
 Tested in `tests/test_metrics_api.py` and `tests/test_metrics_view.py`.
 

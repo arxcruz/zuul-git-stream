@@ -110,7 +110,7 @@ def test_the_page_loads_chartjs_from_one_pinned_cdn_url_and_nothing_else():
 
 
 def test_the_chart_library_has_an_integrity_hash():
-    """Spec constraint; the hash needs a download (backlog: pending)."""
+    """Spec constraint: the pinned script carries its hash."""
     html = page()
     assert re.search(r'integrity="sha(256|384|512)-[A-Za-z0-9+/=]{40,}"',
                      html)
