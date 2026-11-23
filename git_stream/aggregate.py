@@ -166,7 +166,8 @@ def aggregate(conn, query, spec):
     if query.hi is not None:
         where.append('(%s) < ?' % spec['time'])
         args.append(query.hi)
-    order = 'b ASC, g ASC' if query.size else 'n DESC, g ASC'
+    # Cut a long series at its old end: the newest buckets are kept.
+    order = 'b DESC, g ASC' if query.size else 'n DESC, g ASC'
     sql = 'SELECT %s FROM %s%s GROUP BY %s ORDER BY %s LIMIT %d' % (
         ', '.join(select), spec['table'],
         ' WHERE ' + ' AND '.join(where) if where else '', ', '.join(keys),
@@ -180,6 +181,9 @@ def aggregate(conn, query, spec):
         for alias, _ in spec['extra']:
             row[alias] = r['x_' + alias]
         rows.append(row)
+    if query.size:
+        rows.sort(key=lambda r: (r['bucket'], '' if r['group'] is None
+                                 else str(r['group'])))
     return query.describe(rows, truncated)
 
 
@@ -202,6 +206,7 @@ def count_rows(query, entries):
         return (bucket, text) if query.size else (-n, text)
     ranked = sorted(counts.items(), key=order)
     truncated = len(ranked) > query.limit
-    rows = [{'group': g, 'bucket': b, 'count': n}
-            for (g, b), n in ranked[:query.limit]]
+    # A long series is cut at its old end: the newest buckets are kept.
+    kept = ranked[-query.limit:] if query.size else ranked[:query.limit]
+    rows = [{'group': g, 'bucket': b, 'count': n} for (g, b), n in kept]
     return query.describe(rows, truncated)

@@ -204,6 +204,27 @@ def test_the_stream_token_is_sent_for_messages_and_never_returned(ui):
     assert b'tok-b' not in text and 'tok-b' not in str(headers)
 
 
+def test_the_proxy_answers_a_400_for_a_query_that_cannot_be_sent(ui):
+    status, body = ui.app.forge_metrics('runs', 'job=a b\x00c')
+    assert status == 400 and 'message' in body
+
+
+def test_the_stream_token_goes_to_the_messages_query_only(ui):
+    seen = []
+    real = ui.app.urllib.request.Request
+
+    def spy(url, headers=None, **kw):
+        seen.append((url, dict(headers or {})))
+        return real(url, headers=headers or {}, **kw)
+    ui.app.urllib.request.Request = spy
+    try:
+        ui.app.forge_metrics('runs', '')
+        ui.app.forge_metrics('messages', '')
+    finally:
+        ui.app.urllib.request.Request = real
+    assert seen[0][1] == {} and seen[1][1] == {'X-Stream-Token': 'tok-b'}
+
+
 def test_the_proxy_refuses_an_absurdly_long_query(ui):
     status, _, _ = ui.get('/api/metrics/runs?job=' + 'x' * 5000)
     assert status in (400, 414)

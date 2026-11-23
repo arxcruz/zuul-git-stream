@@ -520,6 +520,36 @@ def test_a_long_list_of_groups_is_cut_and_says_so(make_api):
     assert body['truncated'] is False and len(body['rows']) == 1
 
 
+def test_a_cut_time_series_keeps_the_newest_buckets(make_api):
+    api = make_api()
+    for hour in range(10):  # 10 buckets x 250 jobs = 2500 rows > the cap
+        api.metrics.record_results('p', 1, 's', [
+            build('job-%03d' % n, 'SUCCESS', 'x', T0 + hour * HOUR + 5, 1,
+                  'u%d-%d' % (hour, n)) for n in range(250)], 'http://z')
+    status, body = api.get('runs', group='job', bucket='hour', since=T0,
+                           until=T0 + 10 * HOUR)
+    assert status == 200 and body['truncated'] is True
+    buckets = [r['bucket'] for r in body['rows']]
+    assert buckets == sorted(buckets)
+    assert max(buckets) == T0 + 9 * HOUR and min(buckets) > T0
+
+
+def test_a_corrupt_escalation_row_does_not_fail_the_endpoint(full):
+    full.metrics.conn.execute(
+        "INSERT INTO escalation(project, mr, key, sha, time, max_attempts,"
+        " failing_json) VALUES ('bundles', 9, 'b-9', 's', ?, 3, '{not json')",
+        (T0 + 5,))
+    full.metrics.conn.commit()
+    status, body = full.get('escalations', group='job')
+    assert status == 200
+    assert full.get('escalations')[1]['rows'][0]['count'] == 4
+
+
+def test_grouping_escalations_by_job_with_a_job_filter_counts_only_it(full):
+    rows = full.rows('escalations', group='job', job='bundle-api')
+    assert [(r['group'], r['count']) for r in rows] == [('bundle-api', 1)]
+
+
 def test_the_answer_echoes_what_was_asked(full):
     status, body = full.get('runs', group='job', bucket='day', since=T0,
                             until=T0 + DAY)

@@ -199,7 +199,8 @@ def test_metrics_records_runs_and_escalation(forge, zuul, tmp_path):
         assert by_job['bundle-security']['runs'] == 1
         assert by_job['bundle-api']['pass'] == 1
         # One run per escalation.
-        zuul.run(**{'bundle-security': 'FAILURE'})  # 3rd failure of the version
+        # A second failing build of the version.
+        zuul.run(**{'bundle-security': 'FAILURE'})
         report(forge, policy, mr['iid'], 'Build failed.')
         s = metrics.summary(project='bundles')
         # Zuul returns every build of the version on each report, but a build

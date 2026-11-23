@@ -96,8 +96,9 @@ state in `state.db` (projects, MRs, notes).  It is a **log of what
 git-stream saw**, not a
 source of truth (Zuul is the source of truth); it exists to answer
 "what failed, how often, over time" and to survive a restart without
-asking Zuul.  Opt-in: no `[metrics] path` = off.  Stdlib `sqlite3`, single
-writer (the retry policy), so no locking.
+asking Zuul.  Opt-in: no `[metrics] path` = off.  Stdlib `sqlite3`, one
+writer (the retry policy) under a lock; the counting endpoints read through
+their own connection (WAL, decision 17).
 
 ## 12. Forge state in SQLite, with a JSON fallback (Nov 18)
 

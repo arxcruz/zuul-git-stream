@@ -302,13 +302,17 @@ class Metrics:
         want_job = query.filters.get('job')
         entries = []
         for r in rows:
-            jobs = sorted({f.get('job') for f in
-                           json.loads(r['failing_json'] or '[]')
+            try:
+                failing = json.loads(r['failing_json'] or '[]')
+            except ValueError:
+                failing = []  # one corrupt row must not fail the endpoint
+            jobs = sorted({f.get('job') for f in failing
                            if isinstance(f, dict)} - {None})
             if want_job is not None and want_job not in jobs:
                 continue
             if query.group == 'job':
-                entries += [(job, r['time']) for job in jobs]
+                entries += [(job, r['time']) for job in jobs
+                            if want_job in (None, job)]
             else:
                 group = {None: None, 'project': r['project'],
                          'mr': r['key'] or str(r['mr'])}[query.group]

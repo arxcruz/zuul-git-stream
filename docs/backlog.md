@@ -220,6 +220,13 @@ section 1.
   document; today the vocabulary lives in the `stream.py` docstring and the
   README), and a note in `docs/zuul-contract.md` for the retry policy's use of
   Zuul's builds API.
+- [S3 (unverified)] **metrics page load** (`git_stream/aggregate.py`,
+  `devenv/demo-ui/metrics.js`): nothing bounds the number of counting queries
+  that run at once.  One open page sends about 25 requests every 10 seconds,
+  each scanning a table with no usable time index (the message time is an
+  expression), and every open page adds to it.  Also, WAL on a bind-mounted
+  or network volume can break the `-shm` file.  Fix: cap concurrent counts
+  (the connection-cap spec is the place), and an index on the message time.
 
 ## 4. Tooling and process
 

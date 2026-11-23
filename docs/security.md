@@ -111,7 +111,9 @@ recorded.  Access follows what is counted:
   bound parameter.
 - The demo UI proxies them at `/api/metrics/<kind>` (a whitelist of the four
   kinds, a query of at most 2000 characters), passes git-stream's errors
-  through, and adds its `STREAM_TOKEN` to the messages query when set; the
+  through, and adds its `STREAM_TOKEN` to the messages query only, when set (so anyone
+  who can reach the demo UI can read message counts then; compose does not pass
+  `STREAM_TOKEN` to the container, the demo stream being open); the
   token never reaches the browser.  The page escapes every value it shows.
 - The Chart.js script is loaded from cdnjs.cloudflare.com, pinned to 4.4.1
   with a Subresource Integrity hash (sha384), so the demo's metrics page

@@ -6,6 +6,7 @@ and Zuul's API so the browser doesn't need CORS.  Standard library only.
 """
 
 import collections
+import http.client
 import http.server
 import json
 import os
@@ -81,7 +82,8 @@ def forge_metrics(kind, query):
     Its errors pass through with their status and message, so the page can
     say what is wrong; only git-stream being unreachable is a 502.
     """
-    headers = {'X-Stream-Token': STREAM_TOKEN} if STREAM_TOKEN else {}
+    headers = ({'X-Stream-Token': STREAM_TOKEN}
+               if STREAM_TOKEN and kind == 'messages' else {})
     url = '%s/api/stream/metrics/%s' % (FORGE, kind) + (
         '?' + query if query else '')
     try:
@@ -93,6 +95,8 @@ def forge_metrics(kind, query):
             return e.code, json.load(e)
         except ValueError:
             return e.code, {'message': 'git-stream answered %d' % e.code}
+    except (http.client.InvalidURL, ValueError):
+        return 400, {'message': 'the query has characters that cannot be sent'}
     except (urllib.error.URLError, OSError):
         return 502, {'error': 'git-stream is not answering'}
 
