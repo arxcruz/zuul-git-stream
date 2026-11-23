@@ -211,12 +211,19 @@ def test_the_proxy_refuses_an_absurdly_long_query(ui):
 
 # -- the page's JavaScript, under node ----------------------------------------
 
-needs_node = pytest.mark.skipif(shutil.which('node') is None,
-                                reason='node is needed to run metrics.js')
+NO_NODE = ('node is needed to run the metrics page\'s JavaScript tests: '
+           'install Node.js (https://nodejs.org), then run them again')
+
+
+def need_node():
+    """Fail, never skip: without node the page's logic goes untested."""
+    if shutil.which('node') is None:
+        pytest.fail(NO_NODE)
 
 
 def run_js(expression):
     """The JSON value of an expression over metrics.js's exports."""
+    need_node()
     script = ('const m = require(%s); '
               'process.stdout.write(JSON.stringify(%s));' % (
                   json.dumps(os.path.join(UI, 'metrics.js')), expression))
@@ -227,12 +234,9 @@ def run_js(expression):
 
 
 def charts():
-    if shutil.which('node') is None:
-        pytest.skip('node is needed to run metrics.js')
     return run_js('{CHARTS: m.CHARTS, TOTALS: m.TOTALS}')
 
 
-@needs_node
 def test_the_catalog_has_every_chart_of_the_spec():
     found = charts()
     assert {c['id'] for c in found['CHARTS']} == CHART_IDS
@@ -247,7 +251,6 @@ def test_the_catalog_has_every_chart_of_the_spec():
         'messages-rejected'}
 
 
-@needs_node
 def test_every_chart_query_is_one_git_stream_accepts(ui):
     """Run each chart's real query, over the range the fixed data is in."""
     filters = {'range': 'custom', 'since': '2023-11-14', 'until': '2023-11-18'}
@@ -264,7 +267,6 @@ def test_every_chart_query_is_one_git_stream_accepts(ui):
             assert body['rows'], chart['id']  # the data is in range
 
 
-@needs_node
 def test_a_filter_goes_only_to_the_kinds_that_have_it():
     def params(kind, filters):
         chart = {'id': 'x', 'kind': kind, 'group': 'none',
@@ -288,7 +290,6 @@ def test_a_filter_goes_only_to_the_kinds_that_have_it():
         'sender': 's', 'outcome': 'applied'}
 
 
-@needs_node
 def test_a_quick_range_becomes_a_start_time_and_a_bucket():
     now = 1700000000
 
@@ -307,7 +308,6 @@ def test_a_quick_range_becomes_a_start_time_and_a_bucket():
     assert 'bucket' not in query('24h', timeseries=False)
 
 
-@needs_node
 def test_a_custom_range_chooses_its_bucket_and_refuses_too_wide_a_span():
     def query(since, until):
         chart = {'id': 'x', 'kind': 'runs', 'group': 'none',
@@ -323,7 +323,6 @@ def test_a_custom_range_chooses_its_bucket_and_refuses_too_wide_a_span():
     assert wide['error'] and '500' in wide['error']
 
 
-@needs_node
 def test_the_filters_live_in_the_url_and_come_back():
     assert run_js("m.parseFilters('')") == {'range': '24h'}
     got = run_js("m.parseFilters('?project=bundles&job=bundle-api"
@@ -341,7 +340,6 @@ def test_the_filters_live_in_the_url_and_come_back():
                                'm.parseFilters(%s))))' % json.dumps(search))
 
 
-@needs_node
 def test_filter_values_cannot_inject_parameters():
     got = run_js("m.parseFilters('?job=a%26group%3Dresult')")
     assert got['job'] == 'a&group=result'
@@ -353,7 +351,6 @@ def test_filter_values_cannot_inject_parameters():
     assert query['params']['job'] == 'a&group=result'
 
 
-@needs_node
 def test_what_the_page_says_about_each_kind_of_failure():
     def say(status, message):
         return run_js('m.describeError(%d, %s)' % (
@@ -365,7 +362,6 @@ def test_what_the_page_says_about_each_kind_of_failure():
     assert 'not answering' in run_js('m.describeError(502, null)')
 
 
-@needs_node
 def test_empty_data_is_told_from_data():
     assert run_js('m.isEmpty([])') is True
     assert run_js('m.isEmpty(null)') is True
@@ -373,7 +369,6 @@ def test_empty_data_is_told_from_data():
     assert run_js('m.isEmpty([{count: 2}])') is False
 
 
-@needs_node
 def test_without_the_library_the_page_falls_back_to_tables():
     assert run_js('m.libraryAvailable({})') is False
     assert run_js('m.libraryAvailable({Chart: function () {}})') is True
@@ -464,6 +459,7 @@ setTimeout(() => {
 
 
 def smoke(mode):
+    need_node()
     done = subprocess.run(
         ['node', '-e', SMOKE, os.path.join(UI, 'metrics.html'),
          os.path.join(UI, 'metrics.js'), mode],
@@ -472,7 +468,6 @@ def smoke(mode):
     return json.loads(done.stdout)
 
 
-@needs_node
 def test_the_page_draws_every_chart_and_total_from_what_git_stream_says():
     out = smoke('ok')
     assert out['charts'] == len(charts()['CHARTS'])
@@ -483,7 +478,6 @@ def test_the_page_draws_every_chart_and_total_from_what_git_stream_says():
     assert (out['select'], out['range']) == ('bundles', '7d')  # from the URL
 
 
-@needs_node
 def test_with_metrics_off_the_page_says_so_but_still_draws_the_messages():
     out = smoke('off')
     for section in ('jobs', 'bundles', 'webhooks'):
@@ -492,7 +486,6 @@ def test_with_metrics_off_the_page_says_so_but_still_draws_the_messages():
     assert out["charts"] == 4  # only the four message charts have data
 
 
-@needs_node
 def test_without_the_library_it_shows_tables_and_escapes_what_it_shows():
     out = smoke('nolib')
     assert out['libMissing'] and out['charts'] == 0

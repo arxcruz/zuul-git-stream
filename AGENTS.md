@@ -220,6 +220,9 @@ docs/                     the documentation listed above
 
 ## Setting up and testing
 
+The metrics page's JavaScript tests need `node` on the PATH; they fail
+without it, like the contract tests without Zuul.
+
 The contract tests import Zuul, so it must be installed in the venv.  It
 does not need a checkout next to this repo: install it from git.
 

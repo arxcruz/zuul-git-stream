@@ -303,6 +303,8 @@ Spec: `docs/specs/metrics-view.md`.  Choices:
   new hash.  Without the library the page shows tables.
 - **The page's logic is plain functions under node.**  `metrics.js` keeps the
   filters-in-the-URL, query building and error text free of the browser so
-  tests can run them; those tests skip when `node` is missing.
+  tests can run them; those tests fail, with install instructions, when
+  `node` is missing (like the contract tests without Zuul), so the gate never
+  passes without them.
 - **Messages are charted too**, through the same shape of endpoint but behind
   the stream token, and never with a body.
