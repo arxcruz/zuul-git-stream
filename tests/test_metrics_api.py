@@ -353,6 +353,19 @@ def test_messages_work_with_metrics_off_and_the_others_are_a_404(messages):
         assert status == 404 and 'metrics not enabled' in body['message']
 
 
+def test_counting_messages_does_not_hold_the_forge_lock(messages):
+    """A scan of a big log must not stall Zuul's calls or webhooks."""
+    import threading
+    out = []
+    with messages.forge.forge.lock:  # a busy forge: nothing else gets it
+        t = threading.Thread(
+            target=lambda: out.append(messages.get('messages', token='tok-b')[0]))
+        t.start()
+        t.join(5)
+        assert not t.is_alive(), 'the count waited for the forge lock'
+    assert out == [200]
+
+
 def test_without_sqlite_the_messages_aggregate_answers_501(make_api,
                                                            monkeypatch):
     import os

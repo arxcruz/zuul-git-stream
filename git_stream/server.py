@@ -273,6 +273,10 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                 m = GIT_RE.match(path)
                 if m:
                     return self._git(m.group('repo'), path, url.query)
+                if path.startswith('/api/stream/metrics/'):
+                    # Outside the forge's lock: counting a big log must not
+                    # stall Zuul's calls or the webhooks.
+                    return self._counts(path, url.query)
                 # The forge's lock is re-entrant; holding it here keeps
                 # readers from seeing the state while it changes.
                 with self.forge.lock:
@@ -417,11 +421,6 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                 params = self._params(query)
                 return self._json(self.metrics.summary(
                     params.get('project'), _days(params)))
-            if path.startswith('/api/stream/metrics/'):
-                kind = path[len('/api/stream/metrics/'):]
-                if kind not in aggregate.KINDS or self.command != 'GET':
-                    return self._error(404, '404 Not Found')
-                return self._json(self._aggregate(kind, query))
             if path == '/api/stream/messages' and self.command == 'GET':
                 # Bodies may carry callback URLs: same token as the stream.
                 if self._stream_user() is None:
@@ -445,6 +444,12 @@ def make_handler(max_body=MAX_BODY, read_timeout=READ_TIMEOUT,
                         results.append({'error': str(e)})
                 return self._json(results)
             return self._json(stream.apply(self.forge, msgs, sender))
+
+        def _counts(self, path, query):
+            kind = path[len('/api/stream/metrics/'):]
+            if kind not in aggregate.KINDS or self.command != 'GET':
+                return self._error(404, '404 Not Found')
+            return self._json(self._aggregate(kind, query))
 
         def _aggregate(self, kind, query):
             """GET /api/stream/metrics/<kind>: counts for the metrics charts

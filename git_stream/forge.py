@@ -92,8 +92,8 @@ class SqliteStore:
 
     The in-memory view (built in load) is authoritative while the process
     runs; the database is a persistence mirror written on save().  One
-    writer (the forge, under its lock) and single-process readers make
-    locking and WAL unnecessary.
+    writer (the forge, under its lock); the counting endpoints read through
+    their own connection, which WAL lets run beside the writer.
     """
 
     SCHEMA = '''
@@ -137,6 +137,8 @@ class SqliteStore:
         self.path = path
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        # WAL: a long read (the counting endpoints) does not block a write.
+        self.conn.execute('PRAGMA journal_mode=WAL')
         self.conn.executescript(self.SCHEMA)
         self.migrate()
         self.conn.commit()
@@ -218,7 +220,15 @@ class SqliteStore:
             (project_id,)).fetchone()[0]
 
     def aggregate_messages(self, query):
-        return aggregate.aggregate(self.conn, query, MESSAGE_SPEC)
+        # Its own read-only connection, so a scan of a large log needs no
+        # forge lock (Forge.aggregate_messages) and blocks no writer (WAL).
+        reader = sqlite3.connect('file:%s?mode=ro' % urllib.parse.quote(
+            self.path), uri=True)
+        try:
+            reader.row_factory = sqlite3.Row
+            return aggregate.aggregate(reader, query, MESSAGE_SPEC)
+        finally:
+            reader.close()
 
     def messages(self, filters, limit, before):
         """Logged messages, newest first, matching the equality filters
@@ -1164,8 +1174,7 @@ class Forge:
         if not hasattr(self.store, 'aggregate_messages'):
             raise ForgeError('the message log needs the sqlite3 module, which '
                              'this host does not have', 501)
-        with self.lock:
-            return self.store.aggregate_messages(query)
+        return self.store.aggregate_messages(query)
 
     def messages(self, filters, limit=100, before=None):
         """The logged messages, newest first (see SqliteStore.messages)."""

@@ -152,7 +152,10 @@ and `forge.py` (the message log), with the query's values only as bound
 parameters; escalations are counted in Python.  Answers are bounded (200
 groups, 2000 rows) and say `truncated`.  The demo UI's `/metrics` page
 (`devenv/demo-ui/metrics.html`, `metrics.js`) draws them through its
-`/api/metrics/<kind>` proxy.
+`/api/metrics/<kind>` proxy.  These routes run outside the forge's lock, and
+the message counts read through their own read-only SQLite connection (the
+state database is in WAL mode), so a scan of a large log stalls neither
+Zuul's calls nor the webhooks.
 
 ### `config.py`: settings
 `SCHEMA` maps section → option → (default, type, env var).  `load()`
